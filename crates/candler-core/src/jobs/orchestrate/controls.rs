@@ -30,7 +30,7 @@ use crate::isolation::control::{ControlNetwork, ControlSpec};
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::gateway::{SecretError, SecretSource, SecretValue, UpstreamConfig};
 use crate::isolation::hardening::HardLimits;
-use crate::isolation::image::{base_tag, context_digest};
+use crate::isolation::image::{base_tag, context_digest, sidecar_tag};
 use crate::isolation::model::{BuildRequest, Labels, NetworkName, SweepScope};
 use crate::jobs::dir::JobDir;
 use crate::jobs::model::{JobCause, JobControl, JobSpec};
@@ -480,6 +480,8 @@ pub struct ControlContexts {
     pub base_build_args: Vec<(String, String)>,
     /// The build context of the fake model's image.
     pub fakemodel: PathBuf,
+    /// The build context of the gateway's sidecar image.
+    pub gateway: PathBuf,
 }
 
 /// Runs the controls in docker: the fake model in a container of its own, the production gateway
@@ -615,20 +617,15 @@ impl DockerControlRunner {
             std::process::id(),
             nanos()
         ));
+        let scripted = Scripted {
+            script: control.name(),
+            idle_s: Some(control.idle_s()),
+        };
+        let mut world = World { work, fake: None };
         let outcome = self
-            .run_in(
-                rt,
-                identity,
-                harness,
-                &Scripted {
-                    script: control.name(),
-                    idle_s: Some(control.idle_s()),
-                },
-                cancel,
-                work.clone(), // BORROW: the path is removed below
-            )
+            .drive(rt, identity, harness, &scripted, cancel, &mut world)
             .await;
-        drop(std::fs::remove_dir_all(&work));
+        drop(std::fs::remove_dir_all(&world.work));
         outcome
     }
 
@@ -637,6 +634,7 @@ impl DockerControlRunner {
     ///
     /// # Errors
     /// The step that failed, in words.
+    #[cfg(any(test, feature = "test-support"))]
     pub async fn run_in(
         &self,
         rt: &Runtime,
@@ -718,7 +716,9 @@ impl DockerControlRunner {
             .ca_pem(ca)
             .build()
             .map_err(|e| err("the upstream", &e))?;
-        let gateway = sidecar_gateway(&crt, upstream, 4, control_marker())
+        let tag =
+            sidecar_tag(&self.contexts.gateway).map_err(|e| err("the gateway's files", &e))?;
+        let gateway = sidecar_gateway(&crt, &tag, upstream, 4, control_marker())
             .await
             .map_err(|e| e.to_string())?;
 

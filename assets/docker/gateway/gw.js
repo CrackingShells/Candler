@@ -108,8 +108,8 @@ function census(r) {
     + " seq=" + r.variables.gw_n + " tools=" + JSON.stringify(names);
 }
 
-// The text of a message `content` or of a `system` value: the string itself, or the `text` of
-// each block of a list, joined by a newline. Anything else is "".
+// The text of a message `content` or of a `system` value: the string itself, or the non-empty
+// `text` of each block of a list, joined by a newline. Anything else is "".
 function textOf(content) {
   if (typeof content === "string") {
     return content;
@@ -120,7 +120,8 @@ function textOf(content) {
   const parts = [];
   for (let i = 0; i < content.length; i++) {
     const block = content[i];
-    if (block !== null && typeof block === "object" && typeof block.text === "string") {
+    if (block !== null && typeof block === "object" && typeof block.text === "string"
+        && block.text !== "") {
       parts.push(block.text);
     }
   }
@@ -133,10 +134,12 @@ function textOf(content) {
 // that began earlier ends later. The reader keeps the lowest.
 //
 // `system` is the system text: the top-level `system` of the Anthropic form (a string, or a list
-// of blocks) followed by the `system` and `developer` messages of the OpenAI form. `first_message`
-// is the first `user` message, every content block of it. Block texts are joined by a newline.
-// The line is `run=<key> tag=<tag> seq=<n> body=<JSON>`, with the JSON as the last field. "" for
-// a request that is not authentic, carries no tools, or is not lower than one recorded.
+// of blocks) followed by the `system` and `developer` messages of the OpenAI form, the empty ones
+// left out. `first_message` is the first `user` message and no other. Of a list of blocks the text
+// blocks are kept, joined by a newline, and the others are dropped. The line is
+// `run=<key> tag=<tag> seq=<n> body=<JSON>`, with the JSON as the last field. "" for a request that
+// is not authentic, carries no tools, is not lower than one recorded, or holds neither a system
+// text nor a first message.
 function context(r) {
   if (authentic(r) !== "1") {
     return "";
@@ -156,13 +159,11 @@ function context(r) {
   }
   const run = r.variables.gw_run;
   const n = Number(r.variables.gw_n);
-  const lowest = ngx.shared.gwctx.get(run);
-  if (lowest !== undefined && lowest <= n) {
-    return "";
-  }
-  ngx.shared.gwctx.set(run, n);
   const messages = Array.isArray(body.messages) ? body.messages : [];
-  const system = body.system === undefined ? [] : [textOf(body.system)];
+  const system = [];
+  if (body.system !== undefined && textOf(body.system) !== "") {
+    system.push(textOf(body.system));
+  }
   let first = "";
   let found = false;
   for (let i = 0; i < messages.length; i++) {
@@ -171,12 +172,22 @@ function context(r) {
       continue;
     }
     if (message.role === "system" || message.role === "developer") {
-      system.push(textOf(message.content));
+      if (textOf(message.content) !== "") {
+        system.push(textOf(message.content));
+      }
     } else if (message.role === "user" && !found) {
       first = textOf(message.content);
       found = true;
     }
   }
+  if (system.length === 0 && first === "") {
+    return "";
+  }
+  const lowest = ngx.shared.gwctx.get(run);
+  if (lowest !== undefined && lowest <= n) {
+    return "";
+  }
+  ngx.shared.gwctx.set(run, n);
   return "run=" + run + " tag=" + r.variables.gw_tag + " seq=" + r.variables.gw_n
     + " body=" + JSON.stringify({ system: system.join("\n"), first_message: first });
 }

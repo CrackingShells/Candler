@@ -103,6 +103,6 @@ No refusal of this surface has a code.
 
 ## Notes
 
-- `context_start` is the root session's first event when the gateway saw a request that carries tools: it holds the run's first such request, `system` and `first_message`, as the gateway received them. A trace stored without it still reads. [checked: schemas@0.13.0]
-- A list of blocks is the blocks' text joined by a newline. An OpenAI request's `system` and `developer` messages are `system`, its first `user` message `first_message`. Claude Code puts instruction files and hook output in `first_message`, OpenCode in `system`. [checked: schemas@0.13.0]
+- `context_start` is the root session's first event when the gateway saw a request that carries tools: it holds the run's first such request that has a system text or a user message, `system` and `first_message`, as the gateway received them. A trace stored without it still reads. [checked: schemas@0.13.0]
+- Of a list of blocks the text blocks are kept, the others dropped, joined by a newline. An OpenAI request's `system` and `developer` messages are `system`; `first_message` is its first `user` message only. Claude Code puts instruction files and hook output in `first_message`, OpenCode in `system`. [checked: schemas@0.13.0]
 - The gateway's log line for it is 15,500 bytes on Claude Code and 8,943 on OpenCode (fake model, no instruction files), one per run. [checked: schemas@0.13.0]

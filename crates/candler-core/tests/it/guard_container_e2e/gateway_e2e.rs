@@ -1080,16 +1080,17 @@ post() {
 /// Guards: the gateway's record of a run's starting context — of the requests a run sends, in the
 /// Anthropic form with a system list and a message of two blocks, and in the `OpenAI` form with a
 /// `system` and a `developer` message, the gateway logs for the first request that carries tools,
-/// and for no other, its system text and first message as the agent sent them, through quotes,
-/// newlines, backslashes, non-ASCII text and a 60,000-character block; the core's reader gives
-/// back exactly those texts, for the run and tag asked about only.
-/// Oracle: the request bodies the test writes, and the one rule of the texts: the text of each
-/// block, joined by a newline.
+/// and for no other, its system text and first user message as the agent sent them, through
+/// quotes, newlines, backslashes, non-ASCII text and a 60,000-character block; a tooled request
+/// with neither a system text nor a user message is not recorded and does not stand for the run;
+/// the core's reader gives back exactly those texts, for the run and tag asked about only.
+/// Oracle: the request bodies the test writes, and the one rule of the texts: the text blocks,
+/// the empty ones and the other kinds left out, joined by a newline.
 /// Bite: record the first request instead of the first request with tools (the first is the
 /// tool-less one below); read `system` only from the top-level member; keep only the last block.
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs Docker; run with --run-ignored only"]
-async fn trace_context_gateway_records_the_first_request_with_tools_verbatim() {
+async fn trace_context_gateway_records_the_first_request_with_tools_that_holds_a_context() {
     use serde_json::json;
     let rig = Rig::new();
     let token = canary();
@@ -1110,16 +1111,20 @@ async fn trace_context_gateway_records_the_first_request_with_tools_verbatim() {
     let bodies = [
         // the title request: first, and without tools
         json!({"model": "m", "system": "title", "messages": [{"role": "user", "content": "t"}]}),
-        // the first request with tools
+        // a request with tools that holds no system text and no user message: nothing to record
+        json!({"model": "m", "messages": [{"role": "assistant", "content": "x"}], "tools": tools}),
+        // the first request with tools that holds a context; its empty system block is left out
         json!({
             "model": "m",
             "system": [
+                {"type": "text", "text": ""},
                 {"type": "text", "text": system_blocks[0], "cache_control": {"type": "ephemeral"}},
                 {"type": "text", "text": system_blocks[1]},
             ],
             "messages": [
                 {"role": "user", "content": [
                     {"type": "text", "text": first_blocks[0]},
+                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AA=="}},
                     {"type": "text", "text": first_blocks[1]},
                 ]},
                 {"role": "assistant", "content": "later"},

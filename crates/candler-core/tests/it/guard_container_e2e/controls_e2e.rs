@@ -12,7 +12,9 @@ use std::sync::Arc;
 use candler_harness::driver::HarnessDriver;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
-use candler_core::isolation::image::{DockerImageService, ImageAssets, context_digest};
+use candler_core::isolation::image::{
+    DockerImageService, ImageAssets, context_digest, sidecar_tag,
+};
 use candler_core::isolation::model::ImageRef;
 use candler_core::jobs::model::JobControl;
 use candler_core::jobs::orchestrate::controls::{ControlContexts, DockerControlRunner, ensure};
@@ -31,9 +33,6 @@ use crate::support::job_orchestrate::{Rig, spec};
 use crate::support::run_plan::Facts;
 use crate::support::test_image::{SIDECAR_CONTEXT, TestImage};
 use gateway_support::docker;
-
-/// The sidecar's tag, as the binary builds it.
-const SIDECAR_TAG: &str = "candler-gateway:latest";
 
 /// Discards every event.
 struct NullSink;
@@ -112,8 +111,9 @@ impl ControlWorld {
             env!("CARGO_MANIFEST_DIR")
         );
         let fake_context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
-        // The production gateway reads the sidecar under its own tag.
-        let sidecar = TestImage::tagged(SIDECAR_CONTEXT, SIDECAR_TAG);
+        // The production gateway reads the sidecar under the tag of its build context.
+        let sidecar_tag = sidecar_tag(std::path::Path::new(SIDECAR_CONTEXT)).expect("a tag");
+        let sidecar = TestImage::tagged(SIDECAR_CONTEXT, &sidecar_tag);
         let fake_tag = format!(
             "candler-fakemodel:src-{}",
             context_digest(std::path::Path::new(fake_context))
@@ -180,6 +180,7 @@ impl ControlWorld {
             base: base_context.into(),
             base_build_args: base_args,
             fakemodel: fake_context.into(),
+            gateway: SIDECAR_CONTEXT.into(),
         });
         Self {
             rig,

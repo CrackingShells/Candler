@@ -1321,9 +1321,6 @@ pub fn census_context(stream: &[u8]) -> Option<(u64, EventKind)> {
         })
 }
 
-/// The stream name the gateway's record is stored under when the driver names none.
-pub const GATEWAY_STREAM: &str = "gateway_log";
-
 /// The tool inventory of a census stream: the names of the first request, by sequence number,
 /// that carries any, labelled as the gateway's. A request with no tools says nothing; a run none
 /// of whose requests carry tools has no inventory, never an empty one.

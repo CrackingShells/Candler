@@ -12,8 +12,8 @@ use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact,
-    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    GATEWAY_STREAM, GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -24,7 +24,7 @@ use semver::{Version, VersionReq};
 use crate::export::{OpenCodeExportReader, ended_by_of_observed, export_stream};
 use crate::live::OpenCodeLiveReader;
 use crate::prepare::{self, model_id};
-use crate::{CENSUS_STREAM, EXPORT_READER, VALIDATED};
+use crate::{EXPORT_READER, VALIDATED};
 
 const PROGRAM: &str = "opencode";
 
@@ -339,7 +339,7 @@ fn ambiguous_prefixes(names: &[String]) -> Result<(), DriverError> {
 
 /// The stream the gateway's census is stored as.
 fn census_stream() -> Option<StreamName> {
-    CENSUS_STREAM.parse().ok()
+    GATEWAY_STREAM.parse().ok()
 }
 
 /// The placeholder the core fills with the root session id.

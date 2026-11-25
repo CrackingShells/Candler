@@ -18,8 +18,8 @@ use std::sync::Arc;
 use crate::frames::RawFileInfo;
 use candler_harness::driver::{HarnessDriver, Plan};
 use candler_harness::spec::{
-    Cell, CommandSpec, FileRoot, Framing, Observed, PreparedFile, ProcessExit, RunTotals,
-    StateKind, Workspace,
+    Cell, CommandSpec, FileRoot, Framing, GATEWAY_STREAM, Observed, PreparedFile, ProcessExit,
+    RunTotals, StateKind, Workspace,
 };
 use candler_schemas::container::ContainerRole;
 use candler_schemas::execution::{EventPayload, Integrity, InvalidReason, RunManifest, RunTree};
@@ -51,7 +51,7 @@ use super::plan::RunPlan;
 use super::{RunControl, RunOutcome, RunStatus, Runtime};
 use crate::isolation::container::agent_home;
 use crate::isolation::container::mounts::{MountMode, MountRoots, MountSpec, mounts};
-use crate::isolation::gateway::{GATEWAY_STREAM, census_context, census_init};
+use crate::isolation::gateway::{census_context, census_init};
 use crate::isolation::layout;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError, RunOutputs};
@@ -721,10 +721,7 @@ async fn drive(
     let mut gateway_init = None;
     let mut context = None;
     if let Some(gateway) = &rt.gateway {
-        let census_stream = rt.driver.census_stream();
-        let name = census_stream
-            .clone() // BORROW: the driver's name is kept to tell whether it has a census
-            .or_else(|| GATEWAY_STREAM.parse::<StreamName>().ok());
+        let name = GATEWAY_STREAM.parse::<StreamName>().ok();
         let relayed = gateway
             .service
             .run_census(&gateway.handle, &plan.key, attempt_wall)
@@ -738,7 +735,7 @@ async fn drive(
         };
         match stored {
             Some((name, bytes, file)) => {
-                if census_stream.is_some() {
+                if rt.driver.census_stream().is_some() {
                     gateway_init = census_init(&bytes);
                 }
                 context =

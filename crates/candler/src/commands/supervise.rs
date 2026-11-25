@@ -147,6 +147,7 @@ fn control_contexts(rt: &Runtime, spec: &JobSpec) -> Result<ControlContexts, Str
         base: assets.images.base_context,
         base_build_args: base.build_args,
         fakemodel: assets.fakemodel,
+        gateway: assets.gateway,
     })
 }
 

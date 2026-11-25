@@ -874,6 +874,10 @@ impl Observed {
     }
 }
 
+/// The raw stream the core stores the gateway's record of a run under: the tool names of each
+/// model request and the run's starting context.
+pub const GATEWAY_STREAM: &str = "gateway_census";
+
 /// Where an inventory of tools came from. Two inventories from different sources are never the
 /// same observation, and neither equals an unrecorded one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
