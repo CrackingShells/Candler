@@ -810,3 +810,7 @@ mod i8_e2e;
 /// Both harnesses install and trace one declared MCP server the same way.
 #[path = "guard_cli_e2e/parity_e2e.rs"]
 mod parity_e2e;
+
+/// A plug-in grades a real run on each harness by what its trace says of the shell and MCP calls.
+#[path = "guard_cli_e2e/graded_trace_e2e.rs"]
+mod graded_trace_e2e;
