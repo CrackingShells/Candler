@@ -16,8 +16,14 @@ def read_trace(trace: ServedFile | Path | str) -> Iterator[Any]:
 
     `trace` is `context.trace` or a path. A record is the header, a session or an event of
     `normalised-trace.schema.json`, held by the model of its `kind`. A line that is not JSON
-    or that the schema refuses, an unknown field included, raises `pydantic.ValidationError`
-    when the iterator reaches it; the records before it have been yielded.
+    or that the models refuse (an unknown field, a wrong type) raises
+    `pydantic.ValidationError` when the iterator reaches it; the records before it have been
+    yielded. A `null` on an optional field reads as absent, although the schema refuses it.
+
+    It checks lines, not the file's order: an empty file, a missing or second header, a
+    `seq` gap, an event for an undeclared session and a `raw_ref` to a stream the header
+    does not list all pass. Candler checks the order when it writes the trace, and the
+    served copy is pinned by its sha256.
     """
     from ._models.normalised_trace import TraceRecord
 
