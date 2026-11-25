@@ -762,6 +762,16 @@ side = "experiment"
 enum = "DriverError"
 variant = "InvalidValue"
 
+[harness."experiment.harness_rejected_input"]
+side = "experiment"
+enum = "DriverError"
+variant = "HarnessRejectedInput"
+
+[harness."experiment.instructions_collide"]
+side = "experiment"
+enum = "DriverError"
+variant = "InstructionsCollide"
+
 [harness."experiment.mcp_server_prefix_ambiguous"]
 side = "experiment"
 enum = "DriverError"

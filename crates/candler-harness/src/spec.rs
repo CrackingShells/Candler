@@ -641,6 +641,32 @@ impl PermissionMode {
     }
 }
 
+/// Where an instruction text is read: from the agent's home, or from the workspace root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each scope; a new scope must break each of them."
+)]
+pub enum InstructionScope {
+    /// The text the harness reads for every project, from the agent's home.
+    Global,
+    /// The text the harness reads at the root of the workspace.
+    Workspace,
+}
+
+/// What the harness's own check says of the files Candler installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckVerdict {
+    /// The check reports no error and no warning.
+    Clean,
+    /// The check reports an error or a warning.
+    Rejected {
+        /// What the check printed.
+        output: String,
+    },
+}
+
 /// What an experiment sets that reaches the agent. A key whose values form a closed set carries
 /// the value, so a new value is a compile error in every driver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -681,11 +707,15 @@ pub enum AgentSetting {
     CostBudget,
     /// `runner.mode`.
     SessionMode,
+    /// An instruction text, at one scope.
+    Instructions(InstructionScope),
+    /// `hooks`.
+    Hooks,
 }
 
 impl AgentSetting {
     /// Every key, each closed value once.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 34] = [
         Self::ModelId,
         Self::ModelEndpoint,
         Self::Effort(EffortLevel::Low),
@@ -717,6 +747,9 @@ impl AgentSetting {
         Self::TurnBudget,
         Self::CostBudget,
         Self::SessionMode,
+        Self::Instructions(InstructionScope::Global),
+        Self::Instructions(InstructionScope::Workspace),
+        Self::Hooks,
     ];
 }
 
@@ -739,17 +772,20 @@ pub enum DriverFact {
     Census,
     /// What the harness does when the experiment sets no permission mode.
     UnsetPermissionMode,
+    /// The harness has a check of its own for the configuration files Candler installs.
+    ConfigCheck,
 }
 
 impl DriverFact {
     /// Every fact.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::GracefulStop,
         Self::LiveEvents,
         Self::InHarnessGuard,
         Self::ExecutionOutsideChild,
         Self::Census,
         Self::UnsetPermissionMode,
+        Self::ConfigCheck,
     ];
 }
 
@@ -1191,6 +1227,14 @@ pub enum Framing {
     /// One frame holding the whole stream.
     Document,
 }
+
+/// The id of the Claude Code harness.
+pub const CLAUDE_CODE: &str = "claude-code";
+/// The id of the `OpenCode` harness.
+pub const OPENCODE: &str = "opencode";
+/// The ids of the harnesses this workspace ships a driver for: every driver's id is one of them,
+/// and the keys below a cell's `hooks` and `instructions.global` are checked against them.
+pub const HARNESS_IDS: [&str; 2] = [CLAUDE_CODE, OPENCODE];
 
 /// The identity of a harness: its plain name, the value `comparable.harness.name` and the experiment's harness request hold.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

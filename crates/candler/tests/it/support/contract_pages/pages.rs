@@ -69,7 +69,7 @@ pub const PAGES: [Page; 7] = [
         file: "experiment-file.md",
         title: "Experiment file",
         writer: "experimenter",
-        surface: "The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells.",
+        surface: "The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells. Instruction texts and hooks are tables whose keys are the harness's own words: `instructions.global` (harness id to text), `instructions.workspace` (a text), and `hooks` (harness id to `settings` and `files` for `claude-code`, or `plugins` for `opencode`), in `[fixed]` or as factor levels. A hook a consumer gives the agent may approve tool calls, which changes what `permission_mode` means for that cell.",
         roots: &["experiment"],
         helper: false,
     },

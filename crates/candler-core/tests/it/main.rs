@@ -4,6 +4,7 @@
 mod oracle;
 mod support;
 
+mod guard_agent_config;
 mod guard_analysis_report;
 mod guard_analysis_summary;
 mod guard_assert_clean;

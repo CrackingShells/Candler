@@ -111,3 +111,52 @@ fn a_cell_from_resolve_is_stored_and_hashed_without_snapshots() {
         "the run is keyed by the digest of the cell as stored"
     );
 }
+
+/// Guards: a cell that sets an instruction text is refused by name while a driver answers it
+/// `no`, at the key of `[fixed]` that holds it and not as an unknown path; and the run of a cell
+/// that sets neither instructions nor hooks shows both members, empty, through `inspect`.
+///
+/// Oracle: the code and the pointer are written by hand from the surface; the run is made by
+/// `candler run`.
+///
+/// Bite: drop the `instructions` and `hooks` members from what `inspect` shows (the record has
+/// no such member); let the driver answer `Mapped` (the run launches).
+#[test]
+fn instructions_are_refused_by_name_and_inspect_shows_the_members() {
+    let world = world();
+    let refused = world.launch_with(&["--set", "instructions.workspace=read the plan"]);
+    let stderr = String::from_utf8(refused.stderr).unwrap();
+    assert!(!refused.status.success(), "the run is refused: {stderr}");
+    assert!(
+        stderr.contains("\"code\":\"experiment.setting_unsupported\"")
+            && stderr.contains("\"path\":\"/fixed/instructions.workspace\""),
+        "refused as an unsupported setting, not an unknown path: {stderr}"
+    );
+
+    let launched = world.launch();
+    finish(&world, &launched);
+    world.assert_sealed(1);
+    let runs = world.store().join("runs");
+    let run_dir = fs::read_dir(&runs)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.join("run.done").is_file())
+        .expect("a sealed run");
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("inspect")
+        .arg(&run_dir)
+        .current_dir(&world.work)
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "inspect exits 0: {out:?}");
+    let record: Value = serde_json::from_slice(&out.stdout).unwrap();
+    for member in ["instructions", "hooks"] {
+        assert_eq!(
+            record[member],
+            serde_json::json!({}),
+            "the record shows the {member} the run was given: {record}"
+        );
+    }
+}

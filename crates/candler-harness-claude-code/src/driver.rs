@@ -10,9 +10,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact, EffortLevel,
-    GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit, SessionTracker,
-    StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    DriverFact, EffortLevel, GatewayEnv, HarnessId, Observed, PermissionMode, Prepared,
+    ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
@@ -147,7 +147,7 @@ impl ClaudeCodeDriver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id: HarnessId::new(name!("claude-code")),
+            id: HarnessId::new(name!(CLAUDE_CODE)),
             // BORROW: .to_owned() makes owned arguments
             probe: CommandSpec::new(PROGRAM.to_owned(), vec!["--version".to_owned()]),
         }
@@ -278,6 +278,9 @@ impl HarnessDriver for ClaudeCodeDriver {
             AgentSetting::SessionMode => Answer::Mapped {
                 construct: "stream-json over an open stdin, one turn per message",
             },
+            AgentSetting::Instructions(_) | AgentSetting::Hooks => Answer::Refused {
+                reason: "this driver installs no instruction text or hook",
+            },
         }
     }
 
@@ -298,10 +301,27 @@ impl HarnessDriver for ClaudeCodeDriver {
             DriverFact::Census => Answer::Mapped {
                 construct: "Claude Code's `system/init` event lists the tools",
             },
+            DriverFact::ConfigCheck => Answer::Refused {
+                reason: "this driver installs no configuration file to check",
+            },
             DriverFact::UnsetPermissionMode => Answer::Mapped {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",
             },
         }
+    }
+
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
+        let _ = plan;
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
+        let _ = output;
+        CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "CLAUDE.md"
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

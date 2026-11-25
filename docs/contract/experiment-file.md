@@ -2,7 +2,7 @@
 
 ## Surface
 
-The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells.
+The experiment file an experimenter writes to fix the values, factors, replicates, budget, harness and treatment of a set of runs; Candler reads it to plan and run the cells. Instruction texts and hooks are tables whose keys are the harness's own words: `instructions.global` (harness id to text), `instructions.workspace` (a text), and `hooks` (harness id to `settings` and `files` for `claude-code`, or `plugins` for `opencode`), in `[fixed]` or as factor levels. A hook a consumer gives the agent may approve tool calls, which changes what `permission_mode` means for that cell.
 
 ## Version
 
@@ -65,7 +65,7 @@ Wire line: `schemas@0.13.0`.
 | `canonical.syntax_invalid` | A text is not valid JSON. | - | experiment |
 | `experiment.absolute_path` | A value holds an absolute path as a string, and a file enters a cell as an input digest. | - | experiment |
 | `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | The field of the value, such as `/mcp/servers/fs/command`. | experiment |
-| `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
+| `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs, such as a hooks table that has no entry for the cell's harness. | The key of `[fixed]` that holds the value, such as `/fixed/hooks`. | experiment |
 | `experiment.cost_not_positive` | A cost cap is not a finite number above 0. | - | experiment |
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
 | `experiment.document_invalid` | The TOML is not an experiment file: a field is missing, has the wrong type or breaks the format of its own. | The field at fault, or its parent table when a field is missing; none at the root. | experiment |
@@ -76,9 +76,11 @@ Wire line: `schemas@0.13.0`.
 | `experiment.env_source` | A `[fixed]` key, a factor or a `--set` names the path `env`; the `[env]` table is its only source. | The path that was written. | experiment |
 | `experiment.env_token_secret` | An entry of the `env` table is named like `model.token_secret`, the secret that holds the gateway token, whose value reaches the gateway only. | The key of the entry in the `env` table. | experiment |
 | `experiment.factor_without_levels` | A factor has no level, so the experiment would have no cell. | - | experiment |
+| `experiment.harness_rejected_input` | The harness's own check reports an error or a warning for a file Candler installed for the cell, such as a hook configuration the harness cannot read. | The setting in the experiment file that the file comes from, such as `/fixed/hooks`. | experiment |
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
 | `experiment.input_unusable` | A declared input cannot be used as written, for example a missing file or a directory where a file is needed. | The `inputs` array of the experiment file. | experiment |
+| `experiment.instructions_collide` | The workspace instruction text and a declared input mount a file at the same path, the harness's workspace instruction file; the text is refused, never shadowed. | The workspace instruction text in the experiment file, `/fixed/instructions.workspace` or the factor that sets it. | experiment |
 | `experiment.mcp_server_prefix_ambiguous` | Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one. | The table of servers, `/mcp/servers`. | experiment |
 | `experiment.name_collision` | Two names under one root map to the same deviation path, so a deviation there would be ambiguous. | - | experiment |
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |

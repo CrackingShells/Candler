@@ -11,9 +11,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    Action, AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact,
-    GATEWAY_STREAM, GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath,
-    StopSignal, StopSpec, Workspace,
+    Action, AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    DriverFact, GATEWAY_STREAM, GatewayEnv, HarnessId, OPENCODE, Observed, Prepared, ProcessExit,
+    StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -84,7 +84,7 @@ impl OpenCodeDriver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id: HarnessId::new(name!("opencode")),
+            id: HarnessId::new(name!(OPENCODE)),
             probe: CommandSpec::new(PROGRAM.to_owned(), argv(&["--version"])), // BORROW: .to_owned() makes the owned program
         }
     }
@@ -176,10 +176,27 @@ impl HarnessDriver for OpenCodeDriver {
             DriverFact::Census => Answer::Candler {
                 how: "the tools the gateway offered the model in its first request",
             },
+            DriverFact::ConfigCheck => Answer::Refused {
+                reason: "this driver installs no configuration file to check",
+            },
             DriverFact::UnsetPermissionMode => Answer::Candler {
                 how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
             },
         }
+    }
+
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
+        let _ = plan;
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
+        let _ = output;
+        CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {

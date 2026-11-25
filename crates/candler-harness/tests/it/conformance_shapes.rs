@@ -455,6 +455,7 @@ struct Patched {
     host_collect: bool,
     state_override: Option<Vec<StatePath>>,
     gateway_override: Option<GatewayEnv>,
+    config_fact: Option<Answer>,
 }
 
 impl Patched {
@@ -472,6 +473,7 @@ impl Patched {
             host_collect: false,
             state_override: None,
             gateway_override: None,
+            config_fact: None,
         }
     }
 }
@@ -518,6 +520,20 @@ impl TraceReader for EagerCensus {
 }
 
 impl HarnessDriver for Patched {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.inner.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.inner.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.inner.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -555,6 +571,11 @@ impl HarnessDriver for Patched {
     }
 
     fn fact(&self, fact: DriverFact) -> Answer {
+        if let Some(answer) = self.config_fact
+            && fact == DriverFact::ConfigCheck
+        {
+            return answer;
+        }
         self.inner.fact(fact)
     }
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -679,6 +700,25 @@ struct Keeps {
 }
 
 impl HarnessDriver for Keeps {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -823,6 +863,17 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     let message = refusal(&broken, &cases)?;
     assert!(
         message.contains("session capability is declared and the driver returns no session spec"),
+        "{message}"
+    );
+
+    // A harness check stated in the facts with no command behind it is refused.
+    let mut broken = Patched::new();
+    broken.config_fact = Some(Answer::Mapped {
+        construct: "test stand-in",
+    });
+    let message = refusal(&broken, &cases)?;
+    assert!(
+        message.contains("ConfigCheck is stated and config_check returns no command"),
         "{message}"
     );
 
@@ -1130,6 +1181,20 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
 struct Silent(LinesDriver);
 
 impl HarnessDriver for Silent {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.0.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.0.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.0.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -1231,6 +1296,20 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
     }
     struct Sessioned(Patched);
     impl HarnessDriver for Sessioned {
+        fn config_check(
+            &self,
+            plan: &candler_harness::driver::Plan,
+        ) -> Option<candler_harness::spec::CommandSpec> {
+            self.0.config_check(plan)
+        }
+
+        fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+            self.0.read_config_check(output)
+        }
+
+        fn workspace_instruction_file(&self) -> &'static str {
+            self.0.workspace_instruction_file()
+        }
         fn skills(&self) -> candler_harness::skills::SkillTree {
             candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
         }

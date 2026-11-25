@@ -685,6 +685,27 @@ fn check_answers(
     Ok(())
 }
 
+/// Checks that the driver's statement of [`DriverFact::ConfigCheck`] agrees with its
+/// `config_check`: a refused fact has no command and a stated one has a command, so a driver
+/// cannot claim a check that runs nothing.
+fn check_config_check(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    plan: &Plan,
+) -> Result<(), Failure> {
+    let stated = !driver.fact(DriverFact::ConfigCheck).is_refused();
+    match (stated, driver.config_check(plan)) {
+        (false, Some(_)) => Err(driver_failure(
+            "config check",
+            "the fact ConfigCheck is refused and config_check returns a command".to_owned(), // BORROW: .to_owned() makes the owned text
+        )),
+        (true, None) => Err(driver_failure(
+            "config check",
+            "the fact ConfigCheck is stated and config_check returns no command".to_owned(), // BORROW: .to_owned() makes the owned text
+        )),
+        (false, None) | (true, Some(_)) => Ok(()),
+    }
+}
+
 /// Checks the capability rules and the session surface.
 fn check_capabilities(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -1304,6 +1325,7 @@ pub fn run(
     check_names(driver)?;
     check_answers(driver)?;
     let plan = driven("plan", driver.plan(setup.cell, setup.workspace))?;
+    check_config_check(driver, &plan)?;
     check_capabilities(driver, &plan, setup, cases, &owned)?;
     check_builds(driver, &plan, setup, &owned)?;
     for case in cases {

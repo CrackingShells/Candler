@@ -208,6 +208,20 @@ impl Driver {
 }
 
 impl HarnessDriver for Driver {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.inner.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.inner.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.inner.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }

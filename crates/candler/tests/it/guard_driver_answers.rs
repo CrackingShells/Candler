@@ -59,3 +59,19 @@ fn every_driver_answers_every_path_that_reaches_the_agent() {
         }
     }
 }
+
+/// Guards: the harnesses the binary registers are the harnesses `candler_harness::spec::HARNESS_IDS`
+/// lists, which the keys of a cell's `hooks` and `instructions.global` are checked against.
+/// Oracle: the list is written in `candler-harness`; the registry builds its names from its drivers.
+/// Bite: register a driver the list does not name, or list an id no driver has.
+#[test]
+fn the_registered_harnesses_are_the_listed_ones() {
+    let mut registered = Registry::builtin().names();
+    registered.sort();
+    let mut listed: Vec<String> = candler_harness::spec::HARNESS_IDS
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    listed.sort();
+    assert_eq!(registered, listed);
+}
