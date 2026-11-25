@@ -47,7 +47,7 @@ The plan v0 (`00-plan_run_context_v0.md`, §Settled and §What a kind can see) a
 | 4 | "Never served empty": every run stores `trace.jsonl`. A failed reader or a silent session leaves a header-only trace (`runner/exec/mod.rs:762`), which is served. `PartMissing` covers only runs that do not store the part | Fix the wording to "a part the run does not store"; the `Needs.trace` doc says a trace can hold a header alone |
 | 5 | The `ContextArtifact.path` doc says "relative to the run". For an artifact it is relative to the outputs; for the trace and manifest, to the workspace root | Fix the wording, and the `ServedFile` docstring |
 | 6 | `ContextRaw.path` is absolute while `ServedFile.path` is relative, and no doc says the raw streams are gzip-compressed | State both in the docs; no change to the shape |
-| 7 | `Needs` ignores an unknown key in the Rust reader (schemars `deny_unknown_fields` without serde's) | Already open with the maintainer; unchanged here |
+| 7 | `Needs` ignores an unknown key in the Rust reader (schemars `deny_unknown_fields` without serde's) | Kept by the maintainer's decision: the Rust reader ignores an unknown key in `Needs` |
 | 8 | Stale text: `architecture.md:1036` says "hard links or clones"; the `refusal_scope.tsv` note omits the missing-part refusal; the code's text omits the interrupted-run case | Fix the wording. `CorruptBlob` keeps its name, because the code is released |
 | 9 | `crates/candler-harness-claude-code/tests/fixtures/digests.toml` is read by no code and names reader 0.2.0, and READMEs still describe it as a ratchet | Delete it, and the sentences |
 | 10 | The OpenCode reader spells `"shell"` three times, where the Claude Code reader has `SHELL_TOOL` | One constant |
@@ -59,7 +59,6 @@ The plan v0 (`00-plan_run_context_v0.md`, §Settled and §What a kind can see) a
 ## Follow-ups
 
 - **The batching design for outcome reuse (ruling 3).** A kind's I4 key and its refusal depend on its sibling entries in a request. This is for the maintainer.
-- **`Needs` unknown keys (ruling 7).** Open with the maintainer.
 - **Python `ExitStatus.code` is unbounded, while Rust's is `i32`.**
 - Carried from the leaves:
   - the OpenCode signal name mapping;
