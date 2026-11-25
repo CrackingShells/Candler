@@ -205,12 +205,12 @@ fn installed_at(plan: &Plan) -> (String, String) {
 }
 
 /// Asks the harness's own check about the files Candler installs for each cell of `plans`, once
-/// for each distinct harness, image and set of installed files, in a container without network,
-/// and records a clean verdict on the cells it covered. A cell whose driver has no check is not
-/// checked and keeps no verdict.
+/// for each distinct harness, image, set of installed files and set of declared inputs, in a
+/// container without network, and records a clean verdict on the cells it covered. A cell whose
+/// driver has no check is not checked and keeps no verdict.
 ///
 /// The check command's standard output followed by its standard error is the driver's to read,
-/// whatever the exit status; see [`verdict_bytes`] for when the check did not run.
+/// whatever the exit status. A check that did not run is [`ConfigCheckError`], never a verdict.
 ///
 /// # Errors
 /// [`ConfigCheckError::Driver`] with [`DriverError::HarnessRejectedInput`] when the harness

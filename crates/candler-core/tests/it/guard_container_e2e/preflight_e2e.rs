@@ -120,7 +120,21 @@ fn workspace_file_reads_and_refuses_a_write_in_docker() {
         args.push(String::from("--mount"));
         args.push(mount.to_arg().expect("a mount argument"));
     }
-    args.extend(["-w", "/work", "--entrypoint", "sh", image.id(), "-c"].map(String::from));
+    // Root is not refused by a file's mode, so only the mount's read-only flag can refuse the
+    // write. As the image's own user, Linux refuses by mode first ("Permission denied").
+    args.extend(
+        [
+            "--user",
+            "0",
+            "-w",
+            "/work",
+            "--entrypoint",
+            "sh",
+            image.id(),
+            "-c",
+        ]
+        .map(String::from),
+    );
     args.push(String::from(
         "cat AGENTS.md; if echo changed >> AGENTS.md; then echo WRITE-OK; else echo WRITE-DENIED; fi",
     ));
@@ -138,8 +152,7 @@ fn workspace_file_reads_and_refuses_a_write_in_docker() {
         shown.contains("WRITE-DENIED"),
         "the write is refused: {shown}"
     );
-    // The blob is not writable by file mode either, so only the engine's own words tell a
-    // read-only mount from a file that merely refuses the user.
+    // The write ran as root, so the refusal is the mount's, and the shell says so.
     let said = String::from_utf8_lossy(&ran.stderr);
     assert!(
         said.contains("Read-only file system"),
