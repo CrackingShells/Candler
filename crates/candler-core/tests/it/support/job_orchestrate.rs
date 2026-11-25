@@ -658,7 +658,6 @@ impl Rig {
             gateway: None,
             job: self.job.clone(),
             driver: Arc::new(QuietDriver),
-            harnesses: Vec::new(),
             cells: BTreeMap::new(),
             eval_infra: EvalInfra::default(),
         }

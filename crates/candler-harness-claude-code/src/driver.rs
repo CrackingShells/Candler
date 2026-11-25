@@ -10,12 +10,11 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact, EffortLevel,
-    GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit, SessionTracker,
-    StopSignal, StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CollectSpec, CommandSpec, DriverFact,
+    EffortLevel, GatewayEnv, HarnessId, Observed, PermissionMode, Prepared, ProcessExit,
+    SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
-use candler_schemas::name;
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::raw::StreamName;
 use candler_schemas::servers::McpServerKind;
@@ -147,7 +146,7 @@ impl ClaudeCodeDriver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id: HarnessId::new(name!("claude-code")),
+            id: HarnessId::listed(CLAUDE_CODE),
             // BORROW: .to_owned() makes owned arguments
             probe: CommandSpec::new(PROGRAM.to_owned(), vec!["--version".to_owned()]),
         }

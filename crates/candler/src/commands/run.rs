@@ -271,7 +271,6 @@ fn plan_job(
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
         driver: Some(driver),
-        harnesses: Registry::builtin().names(),
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()

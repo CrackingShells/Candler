@@ -65,8 +65,6 @@ pub struct Runtime {
     // TRAIT_OBJECT: the driver is the harness's, or a recording fake in tests
     /// What the runner needs from the harness, as data.
     pub driver: Arc<dyn HarnessDriver>,
-    /// The ids of the registered harnesses.
-    pub harnesses: Vec<String>,
     /// What each cell of the job is, by its digest.
     pub cells: BTreeMap<CellId, Arc<CellRun>>,
     /// The build of the evaluation infrastructure that runs the job.

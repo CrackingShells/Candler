@@ -191,7 +191,6 @@ async fn run_job(store: Store, job: JobId, spec: JobSpec) -> Result<Exit, CliErr
         spec,
         services: JobServices {
             driver,
-            harnesses: Registry::builtin().names(),
             eval_infra: eval_infra(),
         },
     };

@@ -445,7 +445,6 @@ async fn planned(
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
         driver: Some(Arc::new(ClaudeCodeDriver::new())),
-        harnesses: Vec::new(),
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
     let spec = JobSpec {

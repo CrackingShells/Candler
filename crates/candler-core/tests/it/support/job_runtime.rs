@@ -69,7 +69,6 @@ pub fn services() -> JobServices {
     JobServices {
         // TRAIT_OBJECT: the driver is the harness's real one, which a guard never calls
         driver: Arc::new(ClaudeCodeDriver::new()),
-        harnesses: Vec::new(),
         eval_infra: EvalInfra::default(),
     }
 }

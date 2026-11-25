@@ -78,7 +78,6 @@ async fn planned(
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
         driver,
-        harnesses: vec!["claude-code".to_owned(), "opencode".to_owned()],
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
     Ok(outcome.plans.iter().map(|plan| plan.cell.clone()).collect())
@@ -93,8 +92,11 @@ async fn two_levels_of_instructions_or_hooks_plan_two_cells() {
     let levels = [
         ("instructions.workspace", ["\"text A\"", "\"text B\""]),
         (
-            "hooks.claude_code.settings",
-            ["'{\"SessionStart\": []}'", "'{\"Stop\": []}'"],
+            "hooks",
+            [
+                "{claude-code = {settings = {SessionStart = []}}}",
+                "{claude-code = {settings = {Stop = []}}}",
+            ],
         ),
     ];
     for (path, [first, second]) in levels {
@@ -143,21 +145,31 @@ async fn misused_hooks_and_instructions_are_refused_by_name() {
         case(
             "hooks of another harness",
             Arc::clone(&opencode),
-            ("hooks.claude_code.settings", json!("{}")),
+            ("hooks", json!({"claude-code": {"settings": {"Stop": []}}})),
             "experiment.cell_value_missing",
             Some("/fixed/hooks"),
         ),
         case(
             "global text of another harness",
             opencode,
-            ("instructions.global.claude_code", json!("text")),
+            ("instructions.global", json!({"claude-code": "text"})),
             "experiment.cell_value_missing",
             Some("/fixed/instructions.global"),
         ),
         case(
-            "an unregistered harness key",
+            "an unregistered key of the global texts",
             Arc::clone(&claude),
-            ("hooks.nosuch.settings", json!("{}")),
+            (
+                "instructions.global",
+                json!({"nosuch": "x", "claude-code": "y"}),
+            ),
+            "experiment.cell_value_invalid",
+            Some("/instructions/global"),
+        ),
+        case(
+            "an unregistered key of the hooks",
+            Arc::clone(&claude),
+            ("hooks", json!({"nosuch": {}})),
             "experiment.cell_value_invalid",
             Some("/hooks"),
         ),
@@ -165,11 +177,11 @@ async fn misused_hooks_and_instructions_are_refused_by_name() {
             "a hook file path with `..`",
             claude,
             (
-                "hooks.claude_code.files",
-                json!([{"path": "../evil.sh", "text": "x"}]),
+                "hooks",
+                json!({"claude-code": {"files": {"../evil.sh": "x"}}}),
             ),
             "experiment.cell_value_invalid",
-            Some("/hooks/claude_code/files"),
+            Some("/hooks"),
         ),
     ];
     for Case {

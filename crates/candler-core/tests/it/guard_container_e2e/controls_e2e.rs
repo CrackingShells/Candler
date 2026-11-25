@@ -145,7 +145,6 @@ async fn controls_e2e_pinned_harness_passes() {
         gateway: None,
         job: rig.job.clone(),
         driver: Arc::new(ClaudeCodeDriver::new()),
-        harnesses: Vec::new(),
         cells: std::collections::BTreeMap::new(),
         eval_infra: EvalInfra::default(),
     };

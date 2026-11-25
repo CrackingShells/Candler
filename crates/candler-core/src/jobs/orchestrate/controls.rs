@@ -663,7 +663,6 @@ impl DockerControlRunner {
             gateway: None,
             job: job.clone(), // BORROW: the runtime owns its job id
             driver: Arc::clone(&rt.driver),
-            harnesses: rt.harnesses.clone(), // BORROW: the runtime owns its list
             cells: std::collections::BTreeMap::new(),
             eval_infra: rt.eval_infra.clone(), // BORROW: the runtime owns its build identity
         };

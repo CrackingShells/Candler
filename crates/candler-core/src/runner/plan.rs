@@ -57,9 +57,6 @@ pub struct PlanCtx {
     /// it cannot honour; `None` when the caller has none, and both are then left unchecked.
     // TRAIT_OBJECT: the binary selects the driver at runtime
     pub driver: Option<Arc<dyn HarnessDriver>>,
-    /// The ids of the registered harnesses, which the keys of a cell's `hooks` and
-    /// `instructions.global` must name.
-    pub harnesses: Vec<String>,
 }
 
 /// Whether a forced plan may accept a differing re-check.
@@ -153,7 +150,7 @@ pub fn experiment_of<'a>(
     file: &ExperimentFile,
     levels: impl Into<Levels<'a>>,
 ) -> Result<Digest, PlanError> {
-    let cells = fresh_cells(file, &levels.into(), None, &[])?;
+    let cells = fresh_cells(file, &levels.into(), None)?;
     let digests: Vec<Digest> = cells.iter().map(|cell| cell.comparable.digest()).collect();
     // BORROW: explicit .as_slice() instead of Deref coercion
     Ok(experiment_digest(digests.as_slice()))
@@ -169,11 +166,10 @@ pub fn check_cells<'a>(
     file: &ExperimentFile,
     levels: impl Into<Levels<'a>>,
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
-    harnesses: &[String],
 ) -> Result<(), PlanError> {
     let levels = levels.into();
     levels.replicates(file)?;
-    fresh_cells(file, &levels, Some(driver), harnesses).map(drop)
+    fresh_cells(file, &levels, Some(driver)).map(drop)
 }
 
 /// A deviation as `path {stored: <value>, observed: <value>}`, for a message; a value that was
@@ -628,7 +624,6 @@ fn fresh_cells<'r>(
     file: &ExperimentFile,
     levels: &Levels<'r>,
     driver: Option<&dyn HarnessDriver>,
-    harnesses: &[String],
 ) -> Result<Vec<FreshCell<'r>>, PlanError> {
     let session_capable =
         driver.map(|driver| !driver.answer(AgentSetting::SessionMode).is_refused());
@@ -769,8 +764,8 @@ fn fresh_cells<'r>(
         for cell in &cells {
             let view = Cell::new(cell.comparable.values());
             let harness = driver.id().to_string(); // BORROW: .to_string() gives owned text
-            agent_config::instructions(&view, harness.as_str(), harnesses)?; // BORROW: explicit .as_str()
-            agent_config::hooks(&view, harness.as_str(), harnesses)?; // BORROW: explicit .as_str()
+            agent_config::instructions(&view, harness.as_str())?; // BORROW: explicit .as_str()
+            agent_config::hooks(&view, harness.as_str())?; // BORROW: explicit .as_str()
             refuse_unanswered(driver, &view)?;
             driver.check_settings(&view)?;
         }
@@ -1198,12 +1193,7 @@ pub fn plan_runs<'a>(
             None
         }
     };
-    let cells = fresh_cells(
-        file,
-        &levels,
-        ctx.driver.as_deref(),
-        ctx.harnesses.as_slice(),
-    )?;
+    let cells = fresh_cells(file, &levels, ctx.driver.as_deref())?;
     let ledger = read_ledger(&ctx.store)?;
     // BORROW: explicit .as_slice() instead of Deref coercion
     let matched = match_stored(cells.as_slice(), ledger.groups.as_slice())?;

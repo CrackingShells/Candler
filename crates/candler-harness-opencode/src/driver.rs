@@ -12,10 +12,9 @@ use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact,
-    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    GatewayEnv, HarnessId, OPENCODE, Observed, Prepared, ProcessExit, StateKind, StatePath,
+    StopSignal, StopSpec, Workspace,
 };
-use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
@@ -84,7 +83,7 @@ impl OpenCodeDriver {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            id: HarnessId::new(name!("opencode")),
+            id: HarnessId::listed(OPENCODE),
             probe: CommandSpec::new(PROGRAM.to_owned(), argv(&["--version"])), // BORROW: .to_owned() makes the owned program
         }
     }

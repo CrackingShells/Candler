@@ -12,10 +12,6 @@ use serde_json::{Value, json};
 
 type Res<T> = Result<T, Box<dyn std::error::Error>>;
 
-fn registered() -> Vec<String> {
-    vec!["claude-code".to_owned(), "opencode".to_owned()]
-}
-
 fn cell(entries: &[(&str, Value)]) -> Res<Vec<ResolvedValue>> {
     entries
         .iter()
@@ -28,36 +24,35 @@ fn cell(entries: &[(&str, Value)]) -> Res<Vec<ResolvedValue>> {
         .collect()
 }
 
-/// Guards: the hooks of a Claude Code cell are read as the settings object its text holds and the
-/// files it lists, and the global and workspace texts as their envelope.
+/// Guards: the hooks of a Claude Code cell are read as the settings table and the files it
+/// lists, those of an `OpenCode` cell as its plugins, and the global and workspace texts as their
+/// envelope.
 /// Oracle: the values are written by hand.
-/// Bite: read `settings` as text, or the file list as a list (the typed envelopes differ).
+/// Bite: read the cell's hooks as one harness's whatever the harness.
 #[test]
 fn a_cell_gives_each_harness_its_own_envelope() -> Res<()> {
     let values = cell(&[
-        ("hooks.claude_code.settings", json!("{\"Stop\": []}")),
         (
-            "hooks.claude_code.files",
-            json!([{"path": "guard.sh", "text": "#!/bin/sh"}]),
+            "hooks",
+            json!({
+                "claude-code": {"settings": {"Stop": []}, "files": {"guard.sh": "#!/bin/sh"}},
+                "opencode": {"plugins": {"p.js": "x"}}
+            }),
         ),
-        (
-            "hooks.opencode.plugins",
-            json!([{"path": "p.js", "text": "x"}]),
-        ),
-        ("instructions.global.claude_code", json!("global")),
+        ("instructions.global", json!({"claude-code": "global"})),
         ("instructions.workspace", json!("workspace")),
     ])?;
     let view = Cell::new(&values);
-    let Some(Hooks::ClaudeCode(found)) = hooks(&view, "claude-code", &registered())? else {
+    let Some(Hooks::ClaudeCode(found)) = hooks(&view, "claude-code")? else {
         return Err("claude code hooks".into());
     };
     assert_eq!(found.settings.map(Value::Object), Some(json!({"Stop": []})));
     assert_eq!(found.files.len(), 1);
-    let Some(Hooks::OpenCode(found)) = hooks(&view, "opencode", &registered())? else {
+    let Some(Hooks::OpenCode(found)) = hooks(&view, "opencode")? else {
         return Err("opencode hooks".into());
     };
     assert_eq!(found.plugins.len(), 1);
-    let Some(text) = instructions(&view, "claude-code", &registered())? else {
+    let Some(text) = instructions(&view, "claude-code")? else {
         return Err("instructions".into());
     };
     assert_eq!(
@@ -68,37 +63,27 @@ fn a_cell_gives_each_harness_its_own_envelope() -> Res<()> {
     Ok(())
 }
 
-/// Guards: an entry that is not an envelope member, settings that are not a JSON object, and a
-/// file path that appears twice are each refused at the value.
+/// Guards: a member that is not part of the envelope, settings that are not a table, and a file
+/// path that is not a relative path are each refused at `hooks`, naming the member at fault.
 /// Oracle: the refused values are written by hand.
-/// Bite: ignore unknown members, or parse the settings leniently.
+/// Bite: ignore unknown members, or accept any path.
 #[test]
 fn an_entry_that_does_not_fit_its_envelope_is_refused() -> Res<()> {
-    let refused = |entries: &[(&str, Value)]| -> Res<String> {
-        let values = cell(entries)?;
-        match hooks(&Cell::new(&values), "claude-code", &registered()) {
-            Err(DriverError::InvalidValue { path, .. }) => Ok(path.to_string()),
+    let refused = |hooks_value: Value| -> Res<String> {
+        let values = cell(&[("hooks", hooks_value)])?;
+        match hooks(&Cell::new(&values), "claude-code") {
+            Err(DriverError::InvalidValue { path, detail }) => {
+                assert_eq!(path.to_string(), "hooks");
+                Ok(detail)
+            }
             other => Err(format!("expected an invalid value, got {other:?}").into()),
         }
     };
-    assert_eq!(
-        refused(&[("hooks.claude_code.plugins", json!([]))])?,
-        "hooks.claude_code.plugins"
-    );
-    assert_eq!(
-        refused(&[("hooks.claude_code.settings", json!("[1]"))])?,
-        "hooks.claude_code.settings"
-    );
-    assert_eq!(
-        refused(&[("hooks.claude_code.settings", json!("not json"))])?,
-        "hooks.claude_code.settings"
-    );
-    assert_eq!(
-        refused(&[(
-            "hooks.claude_code.files",
-            json!([{"path": "a", "text": "x"}, {"path": "a", "text": "y"}])
-        )])?,
-        "hooks.claude_code.files"
-    );
+    let unknown = refused(json!({"claude-code": {"plugins": {}}}))?;
+    assert!(unknown.contains("plugins"), "{unknown}");
+    let settings = refused(json!({"claude-code": {"settings": "[1]"}}))?;
+    assert!(settings.contains("settings"), "{settings}");
+    let path = refused(json!({"claude-code": {"files": {"../a": "x"}}}))?;
+    assert!(path.contains("../a"), "{path}");
     Ok(())
 }

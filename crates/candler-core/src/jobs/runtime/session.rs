@@ -354,7 +354,6 @@ async fn serve(
         gateway: None,
         job: job.clone(), // BORROW: the runtime owns its job id
         driver: services.driver,
-        harnesses: services.harnesses,
         cells: BTreeMap::new(),
         eval_infra: services.eval_infra,
     };

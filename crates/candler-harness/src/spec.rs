@@ -1224,6 +1224,19 @@ pub enum Framing {
     Document,
 }
 
+/// The id of the Claude Code harness.
+pub const CLAUDE_CODE: &str = "claude-code";
+/// The id of the `OpenCode` harness.
+pub const OPENCODE: &str = "opencode";
+/// The ids of the harnesses this workspace ships a driver for: every driver's id is one of them,
+/// and the keys below a cell's `hooks` and `instructions.global` are checked against them.
+pub const HARNESS_IDS: [&str; 2] = [CLAUDE_CODE, OPENCODE];
+
+const _: () = {
+    assert!(candler_schemas::primitives::is_ascii_name(CLAUDE_CODE));
+    assert!(candler_schemas::primitives::is_ascii_name(OPENCODE));
+};
+
 /// The identity of a harness: its plain name, the value `comparable.harness.name` and the experiment's harness request hold.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[non_exhaustive]
@@ -1234,6 +1247,12 @@ impl HarnessId {
     #[must_use]
     pub const fn new(name: Name) -> Self {
         Self(name)
+    }
+
+    /// The id of the built-in harness `id`, one of [`HARNESS_IDS`], whose text is a valid name.
+    #[must_use]
+    pub fn listed(id: &'static str) -> Self {
+        Self(Name::from_checked_literal(id))
     }
 
     /// The harness name.

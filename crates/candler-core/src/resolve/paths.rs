@@ -221,7 +221,7 @@ pub const CONFIGURATION_PATHS: [PathRow; 51] = [
         Kind::Subtree,
         Class::Value,
         Reach::Agent(&[AgentSetting::Instructions(InstructionScope::Global)]),
-        "The global instruction text of each harness: a table of harness id (written with `_` for `-`) to text.",
+        "The global instruction text of each harness: a table of harness id, as registered, to text; the keys are free.",
     ),
     row(
         INSTRUCTIONS_WORKSPACE,
@@ -235,7 +235,7 @@ pub const CONFIGURATION_PATHS: [PathRow; 51] = [
         Kind::Subtree,
         Class::Value,
         Reach::Agent(&[AgentSetting::Hooks]),
-        "The hooks of each harness: a table of harness id (written with `_` for `-`) to its `settings` or `files`, or its `plugins`.",
+        "The hooks of each harness: a table of harness id, as registered, to its `settings` table and `files` table (Claude Code) or its `plugins` table (OpenCode); the keys are free.",
     ),
     row(
         PERMISSION_MODE,
