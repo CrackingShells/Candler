@@ -1,0 +1,13 @@
+[message."d5ff5efc-d943-44df-a357-f087b8668786"]
+input_tokens = 300
+output_tokens = 3
+cache_read_tokens = 0
+cache_creation_tokens = 0
+
+[session_total."d5ff5efc-d943-44df-a357-f087b8668786"]
+input_tokens = 300
+output_tokens = 60
+cache_read_tokens = 0
+cache_creation_tokens = 0
+cost_usd = 0.0024000000000000002
+

@@ -13,3 +13,50 @@ tokens_reporting = "per_turn"
 [[sessions]]
 id = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
 ended_by = "completed"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_01HjEbccZbRisAvaVC7nixfM"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_018SGUXwYyWm4kqGvbx95hGa"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Bash"
+code = 1
+
+[[exits]]
+tool_use_id = "toolu_01F9M16sniJZQvtpxWj7VSvi"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Bash"
+code = 1
+
+[[exits]]
+tool_use_id = "toolu_01TG9BrL5QWoUcbJTsxKGTP1"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Bash"
+code = 1
+
+[[exits]]
+tool_use_id = "toolu_0125ZJksRek8Db8vs5ERwxYo"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Edit"
+
+[[exits]]
+tool_use_id = "toolu_019UkoTwRW43HQYBr5BYx5Ao"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_019dVgP6Hgxg6YDE6eS9CZii"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01BfmwiZ9bz4cij2PSY8WN9k"
+session = "803a72b6-cbd3-4b0d-9279-a6ff142555a1"
+tool = "Write"

@@ -281,7 +281,7 @@ fn registry_ingest_reads_each_path_with_its_own_harness() {
     readers.sort();
     assert_eq!(readers.len(), 2, "two runs: {readers:?}");
     assert!(readers[0].starts_with("claude-code"), "{readers:?}"); // INDEX: two readers, checked above
-    assert_eq!(readers[1], "opencode-export@0.1.0", "{readers:?}"); // INDEX: two readers, checked above
+    assert_eq!(readers[1], "opencode-export@0.2.0", "{readers:?}"); // INDEX: two readers, checked above
 
     let corpus = root.join("../candler-core/tests/fixtures/mini-corpus");
     let rules = fs::read_to_string(root.join("tests/fixtures/cli/mini-corpus-rules.toml"))

@@ -20,14 +20,30 @@ metadata}` with the artifacts sorted by `path` by code point; its digest is `sha
 
 The twin: `run-6` of the first cell with the first byte of `outputs/domain.py` XORed with 0x01.
 Its digest must differ from the run's own.
+
+Served parts (the `[[served]]` rows). A context whose kinds declare `trace`, `raw` or `manifest`
+adds, to the projection above, one key per served part and only for a served part:
+
+  trace    the sha256 of the stored `trace.jsonl`, as `sha256:<hex>`
+  raw      `[{stream, sha256}]` sorted by `stream`, one per stored `raw/<stream>.jsonl.gz`
+  manifest the sha256 of the stored `manifest.json`
+
+The bytes of those files are the store's, written by the import, so the generator reads them from
+a store folder given with `--store` (the hash of a file is the only thing it takes from there) and
+records each hash in its row. Without `--store` it reuses the hashes its rows already record, so
+`--check` needs no store; the Rust guard compares each recorded hash with the hash of the file the
+store holds before it compares digests. The recorded hashes are those of the bytes a reader
+writes, so the `[[served]]` rows are regenerated with `--store` whenever a reader's output changes.
 """
 
 import argparse
+import glob
 import hashlib
 import importlib.metadata
 import json
 import os
 import sys
+import tomllib
 
 import rfc8785
 
@@ -42,6 +58,11 @@ ARTIFACT_GLOBS = ["outputs/**"]
 METADATA_PATHS = ["plan.prompt_domain_name"]
 TWIN_RUN = (V3, 6)
 TWIN_FILE = "domain.py"
+SERVED = [
+    (V3, 6, ["trace", "raw", "manifest"]),
+    (V6, 12, ["trace"]),
+    (V3, 17, ["raw", "manifest"]),
+]
 
 
 def digest_of(value):
@@ -127,7 +148,98 @@ def header():
     )
 
 
-def generate(corpus):
+def sha_of_file(path):
+    with open(path, "rb") as f:
+        return "sha256:" + hashlib.sha256(f.read()).hexdigest()
+
+
+def stored_hashes(store, n):
+    """The sha256 of the trace, manifest and each raw stream the store holds for replicate `n`."""
+    found = glob.glob(os.path.join(store, "runs", f"*-r{n}-a1"))
+    assert len(found) == 1, (n, found)
+    run = found[0]
+    raw = sorted(
+        (name[: -len(".jsonl.gz")], sha_of_file(os.path.join(run, "raw", name)))
+        for name in os.listdir(os.path.join(run, "raw"))
+        if name.endswith(".jsonl.gz")
+    )
+    return {
+        "trace": sha_of_file(os.path.join(run, "trace.jsonl")),
+        "manifest": sha_of_file(os.path.join(run, "manifest.json")),
+        "raw": raw,
+    }
+
+
+def recorded_hashes(path):
+    """The hashes the `[[served]]` rows of the file on disk record, by replicate."""
+    with open(path, "rb") as f:
+        rows = tomllib.load(f).get("served", [])
+    return {
+        replicate_of(row["run"]): {
+            "trace": row.get("trace_sha256"),
+            "manifest": row.get("manifest_sha256"),
+            "raw": [(r["stream"], r["sha256"]) for r in row.get("raw", [])],
+        }
+        for row in rows
+    }
+
+
+def replicate_of(run):
+    return int(run.rsplit("run-", 1)[1])
+
+
+def served_projection(base, parts, held):
+    proj = dict(base)
+    if "trace" in parts:
+        proj["trace"] = held["trace"]
+    if "raw" in parts:
+        proj["raw"] = [{"stream": s, "sha256": h} for s, h in sorted(held["raw"])]
+    if "manifest" in parts:
+        proj["manifest"] = held["manifest"]
+    return proj
+
+
+def served_rows(corpus, hashes):
+    out = [
+        "# Served parts: the same runs and needs as above, with the kinds declaring the parts named in",
+        "# `needs`. `trace_sha256`, `manifest_sha256` and `raw` record the hash of each stored file",
+        "# (see gen_live_context.py); a part a row does not serve has none of them and no key in its projection.",
+        "",
+    ]
+    base_digests = {}
+    for cell, n, parts in SERVED:
+        held = hashes[n]
+        base = projection(run_artifacts(corpus, cell, n), run_metadata(corpus, cell))
+        proj = served_projection(base, parts, held)
+        digest = digest_of(proj)
+        assert digest != digest_of(base)
+        assert digest not in base_digests.values()
+        base_digests[n] = digest
+        out += [
+            "[[served]]",
+            f"cell = {toml_str(cell)}",
+            f"run = {toml_str(f'{CONFIG}/run-{n}')}",
+            f"needs = [{', '.join(toml_str(p) for p in parts)}]",
+        ]
+        if "trace" in parts:
+            out.append(f"trace_sha256 = {toml_str(held['trace'])}")
+        if "manifest" in parts:
+            out.append(f"manifest_sha256 = {toml_str(held['manifest'])}")
+        if "raw" in parts:
+            items = ", ".join(
+                f"{{ stream = {toml_str(s)}, sha256 = {toml_str(h)} }}"
+                for s, h in sorted(held["raw"])
+            )
+            out.append(f"raw = [{items}]")
+        out += [
+            f"projection = {toml_str(jtext(proj))}",
+            f"digest = {toml_str(digest)}",
+            "",
+        ]
+    return "\n".join(out)
+
+
+def generate(corpus, hashes):
     out = [header()]
     digests = {}
     for cell, n in REAL_RUNS:
@@ -159,7 +271,7 @@ def generate(corpus):
         f"digest = {toml_str(twin_digest)}",
         "",
     ]
-    return "\n".join(out)
+    return "\n".join(out) + "\n" + served_rows(corpus, hashes)
 
 
 def main():
@@ -168,9 +280,17 @@ def main():
         "--check", action="store_true", help="compare with the file on disk"
     )
     ap.add_argument("corpus", help="the mini-corpus folder")
+    ap.add_argument(
+        "--store",
+        help="a store folder holding the import of the corpus: the source of the served files' hashes",
+    )
     args = ap.parse_args()
-    text = generate(args.corpus)
     path = os.path.join(HERE, OUT)
+    if args.store:
+        hashes = {n: stored_hashes(args.store, n) for _, n, _ in SERVED}
+    else:
+        hashes = recorded_hashes(path)
+    text = generate(args.corpus, hashes)
     if not args.check:
         with open(path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)

@@ -2,9 +2,7 @@
 
 ## Surface
 
-The Python package `candler-evaluator`, which an author of an evaluator kind uses to speak the protocol; a kind returns the fields of an outcome record that Candler does not fill.
-
-The author API (a kind's signature, `RunContext`, `KINDS`, `needs` and `params_schema`) is in the package's docstrings and README.
+The Python package `candler-evaluator`, which an author of an evaluator kind uses to speak the protocol; a kind returns the fields of an outcome record that Candler does not fill, and the author API is in the package's docstrings and README.
 
 ## Version
 
@@ -12,7 +10,7 @@ The author API (a kind's signature, `RunContext`, `KINDS`, `needs` and `params_s
 Wire tag: none.
 
 <!-- versions -->
-Package: `candler-evaluator@0.1.0`.
+Package: `candler-evaluator@0.2.0`.
 <!-- /versions -->
 <!-- /generated:version -->
 
@@ -94,6 +92,7 @@ Package: `candler-evaluator@0.1.0`.
 | `helper.plugin_identity_missing` | A plug-in gives no name or version, and names no distribution that supplies them. | - | plugin |
 | `helper.plugin_kinds_missing` | A plug-in module defines no KINDS. | - | plugin |
 | `helper.request_invalid` | A request Candler sent has an id but fails the protocol's models; the helper answers with error -32602. | - | candler |
+| `helper.trace_out_of_order` | A trace file read by a kind is empty, has a record before its header, a second header, a session after an event or a session declared twice. | - | plugin |
 <!-- /generated:refusals -->
 
 ## Notes
@@ -103,3 +102,5 @@ Package: `candler-evaluator@0.1.0`.
 - `print` in a kind goes to stderr; stdout carries the frames alone. [checked: candler-evaluator@0.1.0]
 - An instrument installed from a package index makes `describe` and `evaluate` fail with error -32000. [checked: candler-evaluator@0.1.0]
 - A module with no `KINDS` ends the process with exit 1 before it sends a frame. [checked: candler-evaluator@0.1.0]
+- A part is served when any kind in the request declares it in `needs`. [checked: candler-evaluator@0.2.0]
+- `read_trace` refuses a trace out of order and `null` on an optional field. [checked: candler-evaluator@0.2.0]

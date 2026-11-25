@@ -36,7 +36,9 @@ Wire line: `schemas@0.14.0`.
 | `kinds[].needs` | `Needs` | required | - |
 | `kinds[].needs.artifacts` | `array of string` | required | - |
 | `kinds[].needs.inputs` | `array of Name` | required | - |
+| `kinds[].needs.manifest` | `boolean` | optional | `false` |
 | `kinds[].needs.metadata` | `array of FieldPath` | required | - |
+| `kinds[].needs.raw` | `boolean` | optional | `false` |
 | `kinds[].needs.snapshots` | `array of Name` | required | - |
 | `kinds[].needs.trace` | `boolean` | required | - |
 | `kinds[].params_schema` | `any` | required | - |
@@ -60,9 +62,14 @@ Wire line: `schemas@0.14.0`.
 | `context.inputs[].digest` | `Digest` | required | - |
 | `context.inputs[].kind` | `Name` | required | - |
 | `context.inputs[].path` | `string` | required | - |
+| `context.manifest` | `ContextArtifact` | optional | - |
+| `context.manifest.abs` | `string` | required | - |
+| `context.manifest.path` | `RelPath` | required | - |
+| `context.manifest.sha256` | `Digest` | required | - |
 | `context.metadata` | `map` | required | - |
 | `context.raw` | `array of ContextRaw` | required | - |
 | `context.raw[].path` | `string` | required | - |
+| `context.raw[].sha256` | `Digest` | required | - |
 | `context.raw[].stream` | `StreamName` | required | - |
 | `context.root` | `string` | required | - |
 | `context.run` | `RunKey` | required | - |
@@ -73,7 +80,10 @@ Wire line: `schemas@0.14.0`.
 | `context.snapshots[].digest` | `Digest` | required | - |
 | `context.snapshots[].kind` | `Name` | required | - |
 | `context.snapshots[].path` | `string` | required | - |
-| `context.trace` | `string` | optional | - |
+| `context.trace` | `ContextArtifact` | optional | - |
+| `context.trace.abs` | `string` | required | - |
+| `context.trace.path` | `RelPath` | required | - |
+| `context.trace.sha256` | `Digest` | required | - |
 | `items` | `array of Item` | candler | - |
 | `items[].deadline_ms` | `integer` | required | - |
 | `items[].expectation_id` | `ExpectationId` | required | - |
@@ -148,9 +158,14 @@ Wire line: `schemas@0.14.0`.
 | `params.context.inputs[].digest` | `Digest` | required | - |
 | `params.context.inputs[].kind` | `Name` | required | - |
 | `params.context.inputs[].path` | `string` | required | - |
+| `params.context.manifest` | `ContextArtifact` | optional | - |
+| `params.context.manifest.abs` | `string` | required | - |
+| `params.context.manifest.path` | `RelPath` | required | - |
+| `params.context.manifest.sha256` | `Digest` | required | - |
 | `params.context.metadata` | `map` | required | - |
 | `params.context.raw` | `array of ContextRaw` | required | - |
 | `params.context.raw[].path` | `string` | required | - |
+| `params.context.raw[].sha256` | `Digest` | required | - |
 | `params.context.raw[].stream` | `StreamName` | required | - |
 | `params.context.root` | `string` | required | - |
 | `params.context.run` | `RunKey` | required | - |
@@ -161,7 +176,10 @@ Wire line: `schemas@0.14.0`.
 | `params.context.snapshots[].digest` | `Digest` | required | - |
 | `params.context.snapshots[].kind` | `Name` | required | - |
 | `params.context.snapshots[].path` | `string` | required | - |
-| `params.context.trace` | `string` | optional | - |
+| `params.context.trace` | `ContextArtifact` | optional | - |
+| `params.context.trace.abs` | `string` | required | - |
+| `params.context.trace.path` | `RelPath` | required | - |
+| `params.context.trace.sha256` | `Digest` | required | - |
 | `params.items` | `array of Item` | candler | - |
 | `params.items[].deadline_ms` | `integer` | required | - |
 | `params.items[].expectation_id` | `ExpectationId` | required | - |
@@ -302,7 +320,9 @@ Wire line: `schemas@0.14.0`.
 | `result.kinds[].needs` | `Needs` | required | - |
 | `result.kinds[].needs.artifacts` | `array of string` | required | - |
 | `result.kinds[].needs.inputs` | `array of Name` | required | - |
+| `result.kinds[].needs.manifest` | `boolean` | optional | `false` |
 | `result.kinds[].needs.metadata` | `array of FieldPath` | required | - |
+| `result.kinds[].needs.raw` | `boolean` | optional | `false` |
 | `result.kinds[].needs.snapshots` | `array of Name` | required | - |
 | `result.kinds[].needs.trace` | `boolean` | required | - |
 | `result.kinds[].params_schema` | `any` | required | - |
@@ -419,9 +439,14 @@ Wire line: `schemas@0.14.0`.
 | `params.context.inputs[].digest` | `Digest` | required | - |
 | `params.context.inputs[].kind` | `Name` | required | - |
 | `params.context.inputs[].path` | `string` | required | - |
+| `params.context.manifest` | `ContextArtifact` | optional | - |
+| `params.context.manifest.abs` | `string` | required | - |
+| `params.context.manifest.path` | `RelPath` | required | - |
+| `params.context.manifest.sha256` | `Digest` | required | - |
 | `params.context.metadata` | `map` | required | - |
 | `params.context.raw` | `array of ContextRaw` | required | - |
 | `params.context.raw[].path` | `string` | required | - |
+| `params.context.raw[].sha256` | `Digest` | required | - |
 | `params.context.raw[].stream` | `StreamName` | required | - |
 | `params.context.root` | `string` | required | - |
 | `params.context.run` | `RunKey` | required | - |
@@ -432,7 +457,10 @@ Wire line: `schemas@0.14.0`.
 | `params.context.snapshots[].digest` | `Digest` | required | - |
 | `params.context.snapshots[].kind` | `Name` | required | - |
 | `params.context.snapshots[].path` | `string` | required | - |
-| `params.context.trace` | `string` | optional | - |
+| `params.context.trace` | `ContextArtifact` | optional | - |
+| `params.context.trace.abs` | `string` | required | - |
+| `params.context.trace.path` | `RelPath` | required | - |
+| `params.context.trace.sha256` | `Digest` | required | - |
 | `params.items` | `array of Item` | candler | - |
 | `params.items[].deadline_ms` | `integer` | required | - |
 | `params.items[].expectation_id` | `ExpectationId` | required | - |
@@ -510,3 +538,4 @@ Wire line: `schemas@0.14.0`.
 - An `evaluate` request ends with the result `{"reported": n}`, after its `n` outcome notifications. [checked: candler-evaluator@0.1.0]
 - Candler does not compare protocol versions: any `describe` protocol is accepted. [checked: v@0.6.0]
 - Each output keeps its execute bit; its copy at `context.artifacts[].abs` is read-only, `0555` for an executable and `0444` otherwise. [checked: schemas@0.12.0]
+- Context and digest cover the request's kinds together; a part the run lacks refuses the request. [checked: v@0.16.0]

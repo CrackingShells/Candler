@@ -21,3 +21,64 @@ ended_by = "completed"
 id = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
 parent = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
 ended_by = "completed"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+tool = "Agent"
+
+[[exits]]
+tool_use_id = "toolu_013rUBv8WaxMpvAnSxiaJqvt"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_018w9kSKemJqDwMiXrxSkitE"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01Mud8pkCLU11w5wd5RkXvhB"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01HJafK6ZEMVouptJbdqEe8s"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3"
+tool = "ScheduleWakeup"
+
+[[exits]]
+tool_use_id = "toolu_01STZvWneBTdZbdov85XbMYh"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_016xvToFsnpc4cHDeRAnxcGu"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Bash"
+code = 1
+
+[[exits]]
+tool_use_id = "toolu_01W7rC53fjUaVdze1SiTCy46"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Edit"
+
+[[exits]]
+tool_use_id = "toolu_01QY2QFkrQhSEZtujTqZWBW9"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_011zRqPekYZe1CGUCiUTa66E"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_011n8HZjkrjkBmqrGCcrZjG6"
+session = "ea98d538-0c5d-4bb7-a243-1b890dda15d3/toolu_01GvxyCVQDtQf2ByXX2qt9gx"
+tool = "Write"

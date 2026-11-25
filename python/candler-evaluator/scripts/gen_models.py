@@ -1,10 +1,11 @@
 """Regenerate `src/candler_evaluator/_models/` from the published wire schemas.
 
 Run from `python/candler-evaluator`: `uv run --frozen python scripts/gen_models.py`.
-One module per schema root: `evaluator-*.schema.json` and `outcome-record.schema.json` of
-`crates/candler-schemas/schema/`. Each module's header names its schema file and the file's
-sha256, so a changed schema shows as a changed header. The output is deterministic; CI
-regenerates it and fails when it differs from what is committed.
+One module per schema root: `evaluator-*.schema.json`, `outcome-record.schema.json` and
+`normalised-trace.schema.json` of `crates/candler-schemas/schema/`. Each module's header
+names its schema file and the file's sha256, so a changed schema shows as a changed
+header. The output is deterministic; CI regenerates it and fails when it differs from what
+is committed.
 """
 
 from __future__ import annotations
@@ -18,8 +19,11 @@ HELPER = Path(__file__).resolve().parents[1]
 SCHEMAS = HELPER.parents[1] / "crates" / "candler-schemas" / "schema"
 MODELS = HELPER / "src" / "candler_evaluator" / "_models"
 
-# Options that decide the shape of the output. Formatting is ruff's, so the files pass
-# `ruff format --check` as committed.
+# Options that decide the shape of the output. `--strict-nullable` stops a field with a default
+# from admitting `null`, and `--use-missing-sentinel` types an optional field as `X | MISSING`, so
+# a model refuses `null` where the schema does and still lets the field be left out; the
+# sentinel needs pydantic 2.14 for `pydantic.MISSING`. Formatting is ruff's, so the files
+# pass `ruff format --check` as committed.
 OPTIONS = [
     "--input-file-type",
     "jsonschema",
@@ -29,6 +33,10 @@ OPTIONS = [
     "3.10",
     "--use-annotated",
     "--use-union-operator",
+    "--strict-nullable",
+    "--use-missing-sentinel",
+    "--target-pydantic-version",
+    "2.14",
     "--formatters",
     "ruff-check",
     "ruff-format",
@@ -39,6 +47,7 @@ def roots() -> list[Path]:
     """The schema roots the helper's models come from, in a fixed order."""
     found = sorted(SCHEMAS.glob("evaluator-*.schema.json"))
     found.append(SCHEMAS / "outcome-record.schema.json")
+    found.append(SCHEMAS / "normalised-trace.schema.json")
     return found
 
 

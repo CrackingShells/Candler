@@ -25,6 +25,7 @@ use flate2::read::MultiGzDecoder;
 use flate2::{Compression, GzBuilder};
 use sha2::{Digest as _, Sha256};
 
+use crate::store::layout::raw_file_name;
 use crate::store::sync::{sync_dir, sync_file};
 
 /// The two bytes that open a gzip member.
@@ -275,8 +276,9 @@ impl FrameWriter {
     /// Returns the I/O error of any of those steps; the plain file stays on disk.
     pub fn finish(mut self) -> io::Result<RawFileInfo> {
         self.flush_tail()?;
-        let gz_path = self.dir.join(format!("{}.jsonl.gz", self.stream));
-        let gz_tmp = self.dir.join(format!("{}.jsonl.gz.tmp", self.stream));
+        let gz_name = raw_file_name(&self.stream);
+        let gz_path = self.dir.join(&gz_name);
+        let gz_tmp = self.dir.join(format!("{gz_name}.tmp"));
         let out = HashingWriter {
             file: File::create(&gz_tmp)?,
             hasher: Sha256::new(),

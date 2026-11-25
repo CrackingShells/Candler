@@ -4,12 +4,11 @@
 #![cfg(unix)]
 
 use crate::support::cli_run::{self, AGENT_BYTES, AGENT_FILE, World};
-use crate::support::seam::{entries_under, finish, shasum, sync_environment};
+use crate::support::seam::{self, finish, shasum, sync_environment};
 
 use std::fs;
 use std::os::unix::fs::symlink;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::path::PathBuf;
 
 use candler_core::store::layout::StoreLayout;
 use serde_json::Value;
@@ -91,34 +90,6 @@ lock = "env/uv.lock"
     (manifest, suite)
 }
 
-/// Runs `candler evaluate` over the store of the world with `suite`, from a project directory
-/// whose `candler.toml` lists the manifest's directory under `plugins.dirs`.
-fn evaluate(world: &World, manifest: &Path, suite: &Path) -> Output {
-    let project = world.root.join("project");
-    fs::create_dir_all(&project).unwrap();
-    fs::write(
-        project.join("candler.toml"),
-        format!(
-            "[plugins]\ndirs = [\"{}\"]\n",
-            manifest.parent().unwrap().display()
-        ),
-    )
-    .unwrap();
-    Command::new(env!("CARGO_BIN_EXE_candler"))
-        .arg("--store")
-        .arg(world.store())
-        .arg("evaluate")
-        .arg(suite)
-        .current_dir(&project)
-        .env_remove("CANDLER_STORE")
-        .env("HOME", world.root.join("home"))
-        .env("XDG_CONFIG_HOME", world.root.join("config"))
-        .env("XDG_STATE_HOME", &world.state)
-        .stdin(Stdio::null())
-        .output()
-        .unwrap()
-}
-
 /// The one sealed run directory of the store.
 fn sealed_run(layout: &StoreLayout) -> PathBuf {
     let runs: Vec<PathBuf> = fs::read_dir(layout.runs_dir())
@@ -153,7 +124,7 @@ fn a_run_that_writes_a_file_is_graded_from_its_stored_bytes() {
     let run = sealed_run(&layout);
     let want = shasum(AGENT_BYTES.as_bytes());
 
-    let evaluated = evaluate(&world, &manifest, &suite);
+    let evaluated = seam::evaluate(&world, &manifest, &suite);
     let stderr = String::from_utf8_lossy(&evaluated.stderr).into_owned();
     let stdout = String::from_utf8_lossy(&evaluated.stdout).into_owned();
     assert!(
@@ -164,17 +135,7 @@ fn a_run_that_writes_a_file_is_graded_from_its_stored_bytes() {
     let report: Value = serde_json::from_slice(&evaluated.stdout).unwrap();
     assert_eq!(report["failed_requests"], serde_json::json!([]), "{report}");
 
-    let records: Vec<Value> = entries_under(&layout.outcomes_dir())
-        .iter()
-        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
-        .flat_map(|path| {
-            fs::read_to_string(path)
-                .unwrap()
-                .lines()
-                .map(|line| serde_json::from_str::<Value>(line).unwrap())
-                .collect::<Vec<_>>()
-        })
-        .collect();
+    let records = seam::outcome_records(&world);
     assert_eq!(records.len(), 1, "one outcome record: {records:?}");
     assert_eq!(
         records[0]["status"], "pass",

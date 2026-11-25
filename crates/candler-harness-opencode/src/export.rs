@@ -11,14 +11,18 @@ use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{Confidence, FormatVersion, Framing, Observed, ObservedEnd};
 use candler_schemas::outcome::Finite;
 use candler_schemas::primitives::{NameVersion, ReasonCode, Timestamp};
+use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{
     EndedBy, Event, EventKind, Session, SessionEvent, SessionId, SpanId, ToolOrigin, UsageScope,
 };
 use serde_json::{Map, Value};
 
-use crate::{VALIDATED, session_source};
+use crate::{EXPORT_READER_VERSION, VALIDATED, session_source};
 use candler_schemas::name;
+
+/// The name of the shell tool, the only one whose result reports an exit.
+pub(crate) const SHELL_TOOL: &str = "shell";
 
 /// The tools `OpenCode` offers the model by itself, as `opencode_facts` listed them.
 const BUILTIN_TOOLS: [&str; 12] = [
@@ -27,7 +31,7 @@ const BUILTIN_TOOLS: [&str; 12] = [
     "grep",
     "question",
     "read",
-    "shell",
+    SHELL_TOOL,
     "skill",
     "subagent",
     "webfetch",
@@ -181,11 +185,26 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
     let name = text(block, "name").unwrap_or_default();
     let state = field(block, "state");
     let input = state.and_then(|state| field(state, "input"));
-    let argv = (name == "shell")
+    let argv = (name == SHELL_TOOL)
         .then(|| {
             input
                 .and_then(|input| text(input, "command"))
                 .map(|command| vec![command.to_owned()]) // BORROW: .to_owned() makes owned text
+        })
+        .flatten();
+    let status = state.and_then(|state| text(state, "status"));
+    // The code OpenCode reports for a `shell` call in `state.metadata.exit`. A call that ended in
+    // an error state, that reported none (a timeout reports a signal name and no code), or that is
+    // not `shell` has none; so has one whose `exit` is not an `i32`, dropped as the reader drops
+    // any other malformed harness field.
+    let exit = (name == SHELL_TOOL && status == Some("completed"))
+        .then(|| {
+            state
+                .and_then(|state| field(state, "metadata"))
+                .and_then(|metadata| metadata.get("exit"))
+                .and_then(Value::as_i64)
+                .and_then(|code| i32::try_from(code).ok())
+                .map(|code| ExitStatus::Code { code })
         })
         .flatten();
     let origin = origin_of(name, servers);
@@ -206,10 +225,9 @@ fn tool_drafts(block: &Value, message_at: Option<&Timestamp>, servers: &[String]
         call = call.with("input", input.clone()); // BORROW: .clone() keeps the input in the event
     }
     let mut drafts = vec![call];
-    let status = state.and_then(|state| text(state, "status"));
     if matches!(status, Some("completed" | "error")) {
         let mut result = Draft::new(
-            EventKind::tool_result(status == Some("error"), None),
+            EventKind::tool_result(status == Some("error"), None, exit),
             time("completed"),
         );
         result.span = span;
@@ -318,7 +336,7 @@ impl OpenCodeExportReader {
         // The longest name first, so that `a_b` is tried before `a` for the tool `a_b_c`.
         servers.sort_by_key(|server| std::cmp::Reverse(server.len()));
         Self {
-            identity: NameVersion::of(&name!("opencode-export"), semver::Version::new(0, 1, 0)),
+            identity: NameVersion::of(&name!("opencode-export"), EXPORT_READER_VERSION),
             read: None,
             servers,
         }

@@ -49,6 +49,14 @@ ASSUMED for imported runs (`context_digest_runs.toml` only; the other files keep
     cell's `experiment.json`, not a `measured` value and not read from the run's files.
 13. The `run` key of a runs vector is `<config>/run-<N>` (`with_skill/run-6`), the run folder
     relative to `_run_cache/`.
+
+ASSUMED for served run parts (`context_digest_served.toml` only)
+14. Served parts (`context_digest_served.toml`): a context that serves the trace, the raw streams
+    or the manifest adds one key to the projection for each, and only for a part it serves:
+    `trace` is the sha256 of the trace file as the string `sha256:<64 hex>`, `manifest` likewise,
+    and `raw` is `[{stream, sha256}]` sorted by `stream` by Unicode code point. A part that is not
+    served has no key, so every projection of the other files is unchanged. The paths and the
+    absolute paths of a served part stay outside the projection, as an artifact's absolute path does.
 """
 
 import argparse
@@ -65,8 +73,10 @@ import tomllib
 import rfc8785
 
 _NOTES = __doc__.split("ASSUMED (also listed under Findings in the leaf report)\n", 1)[1]
-ASSUMED, ASSUMED_RUNS = _NOTES.split("\nASSUMED for imported runs", 1)
-ASSUMED_RUNS = ASSUMED_RUNS.split("\n", 1)[1].rsplit('"""', 1)[0]
+ASSUMED, _REST = _NOTES.split("\nASSUMED for imported runs", 1)
+ASSUMED_RUNS, ASSUMED_SERVED = _REST.split("\nASSUMED for served run parts", 1)
+ASSUMED_RUNS = ASSUMED_RUNS.split("\n", 1)[1]
+ASSUMED_SERVED = ASSUMED_SERVED.split("\n", 1)[1].rsplit('"""', 1)[0]
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 MINI = os.path.normpath(os.path.join(HERE, "..", "..", "fixtures", "mini-corpus"))
@@ -84,6 +94,7 @@ FILES = (
     "suite_entry_digest.toml",
     "request_id.toml",
     "context_digest_runs.toml",
+    "context_digest_served.toml",
 )
 
 
@@ -431,6 +442,79 @@ def context_vectors():
     return "\n".join(out), cases
 
 
+def served_projection(base, trace=None, raw=None, manifest=None):
+    """ASSUMED 14: the base projection plus a key for each served part, sorted as R01 says."""
+    proj = context_projection(*base)
+    if trace is not None:
+        proj["trace"] = trace
+    if raw:
+        proj["raw"] = sorted(raw, key=lambda r: r["stream"])
+    if manifest is not None:
+        proj["manifest"] = manifest
+    return proj
+
+
+SERVED_BASE = (
+    [{"path": "outputs/plan.json", "sha256": hexd("plan")}],
+    [],
+    [{"kind": "mapping", "digest": hexd("mapping")}],
+    {"plan.model": "claude-haiku-4-5"},
+)
+SERVED_CASES = (
+    ("a served trace", {"trace": hexd("trace")}),
+    (
+        "two served raw streams, given out of order",
+        {
+            "raw": [
+                {"stream": "stdout", "sha256": hexd("stdout")},
+                {"stream": "stderr", "sha256": hexd("stderr")},
+            ]
+        },
+    ),
+    ("a served manifest", {"manifest": hexd("manifest")}),
+    (
+        "a trace, raw streams and a manifest together",
+        {
+            "trace": hexd("trace"),
+            "raw": [{"stream": "stdout", "sha256": hexd("stdout")}],
+            "manifest": hexd("manifest"),
+        },
+    ),
+    (
+        "a trace and a manifest, no raw streams",
+        {"trace": hexd("trace-2"), "manifest": hexd("manifest-2")},
+    ),
+)
+
+
+def served_vectors():
+    out = [
+        header(
+            "context_digest_served.toml",
+            "context digests of contexts that serve a trace, raw streams or a manifest (R01 §Digests of a request).",
+            ASSUMED_SERVED,
+        )
+    ]
+    out.append(
+        "# `input` is the projection as a caller may hold it (`raw` in any order); the digest is\n"
+        "# over the projection with `raw` sorted by `stream`, returned in `sorted`. Each key is\n"
+        "# present only for a part the case serves.\n"
+    )
+    cases = []
+    for title, parts in SERVED_CASES:
+        given = context_projection(*SERVED_BASE)
+        given.update(parts)
+        proj = served_projection(SERVED_BASE, **parts)
+        cases.append((title, proj))
+        out.append("[[vector]]")
+        out.append(f"title = {toml_str(title)}")
+        out.append(f"input = {toml_str(jtext(given))}")
+        out.append(f"sorted = {toml_str(jtext(proj))}")
+        out.append(f"digest = {toml_str(digest_of(proj))}")
+        out.append("")
+    return "\n".join(out), cases
+
+
 def run_artifacts(cell, config, n):
     """ASSUMED 11: every file under the run's `outputs/`, by relative path and raw-byte sha256."""
     root = os.path.join(MINI, cell, "_run_cache", config, f"run-{n}", "outputs")
@@ -609,8 +693,9 @@ def generate():
     suite_text, suite_entries = suite_vectors()
     request_text, request_rows = request_vectors(comparables)
     runs_text, _runs = run_context_vectors()
+    served_text, _served = served_vectors()
     texts = dict(
-        zip(FILES, (cells_text, context_text, suite_text, request_text, runs_text))
+        zip(FILES, (cells_text, context_text, suite_text, request_text, runs_text, served_text))
     )
     return texts, comparables, context_cases, suite_entries, request_rows
 

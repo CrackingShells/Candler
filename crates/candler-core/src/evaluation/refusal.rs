@@ -38,6 +38,7 @@ fn context_error_path(error: &ContextError) -> Option<String> {
         | ContextError::Glob { .. }
         | ContextError::Unsupported { .. }
         | ContextError::InputRefused { .. }
+        | ContextError::PartMissing { .. }
         | ContextError::MissingMetadata { .. }
         | ContextError::Workspace { .. }
         | ContextError::Io { .. }
@@ -151,6 +152,12 @@ wrapper_table! {
         "A kind needs an input that the run does not hold, that is reserved for the image, or whose list is not in the store.",
         "-",
     ),
+    PartMissing { .. } => row(
+        "evaluation.run_part_missing",
+        Side::Plugin,
+        "A kind needs the trace or the raw streams of a run that does not store them, as an imported run whose harness frames the importer could not read, or a run sealed after an interruption.",
+        "-",
+    ),
     MissingMetadata { .. } => row(
         "evaluation.metadata_missing",
         Side::Plugin,
@@ -172,7 +179,7 @@ wrapper_table! {
     CorruptBlob { .. } => row(
         "evaluation.blob_corrupt",
         Side::Environment,
-        "A blob of the store does not have the digest the store records for it.",
+        "A stored file of a run does not have the digest recorded for it: a blob of the store, or the trace, a raw stream or the manifest.",
         "-",
     ),
     Build (..) => row(
@@ -423,6 +430,7 @@ fn context_answer(error: &ContextError) -> &dyn Refusal {
         | ContextError::Glob { .. }
         | ContextError::Unsupported { .. }
         | ContextError::InputRefused { .. }
+        | ContextError::PartMissing { .. }
         | ContextError::MissingMetadata { .. }
         | ContextError::Workspace { .. }
         | ContextError::Io { .. }

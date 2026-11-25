@@ -8,7 +8,7 @@
 //! setting `[gateway] upstream_ca`. One experiment file is written once; the line `[harness]`
 //! names is the only thing that differs between the two runs.
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
@@ -16,14 +16,14 @@ use serde_json::{Value, json};
 
 use super::i8_e2e::{Made, fake_host, must};
 use super::{docker, real_docker};
-use crate::support::cli_run::{wait_for, world};
+use crate::support::cli_run::{World, wait_for, world};
 use crate::support::seam::entries_under;
 
 /// The credential the fake model demands and the experiment's secret supplies.
 pub(super) const TOKEN: &str = "parity-fixture-token-0123456789";
 
 /// The server the cell declares.
-const SERVER: &str = "parity";
+pub(super) const SERVER: &str = "parity";
 
 /// The text the fixture's tool returns.
 const STAMP: &str = "parity-stamp-5c1e";
@@ -71,9 +71,10 @@ pub(super) struct Fake {
     _dir: tempfile::TempDir,
 }
 
-/// Builds the fake model's image under a tag of `label`, starts it with the fixture's token, waits
-/// until it is ready and copies its CA out. The image and the container go to `made`.
-pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str) -> Fake {
+/// Builds the fake model's image under a tag of `label`, starts it with the fixture's token and
+/// the settings `env` (each `NAME=value`), waits until it is ready and copies its CA out. The image
+/// and the container go to `made`.
+pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str, env: &[String]) -> Fake {
     let host = fake_host(real);
     let publish = format!(
         "{}::8443",
@@ -94,22 +95,16 @@ pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str) -> Fake {
         real,
         &["image", "inspect", "--format", "{{.Id}}", &tag],
     ));
-    let fake = must(
-        real,
-        &[
-            "run",
-            "-d",
-            "--label",
-            &tagged,
-            "-p",
-            &publish,
-            "-e",
-            &format!("FAKE_TOKEN={TOKEN}"),
-            "-e",
-            &format!("FAKE_HOST={host}"),
-            &tag,
-        ],
-    );
+    let token = format!("FAKE_TOKEN={TOKEN}");
+    let named = format!("FAKE_HOST={host}");
+    let mut words = vec![
+        "run", "-d", "--label", &tagged, "-p", &publish, "-e", &token, "-e", &named,
+    ];
+    for setting in env {
+        words.extend(["-e", setting.as_str()]);
+    }
+    words.push(&tag);
+    let fake = must(real, &words);
     made.containers.push(fake.clone()); // BORROW: the cleanup owns its ids
     let port = must(real, &["port", &fake, "8443/tcp"])
         .lines()
@@ -201,8 +196,8 @@ fn call_origins(text: &str) -> Vec<Value> {
 
 /// A job the real `candler run` ran to its end: its world and the store its runs are sealed in.
 pub(super) struct Ran {
-    pub(super) world: crate::support::cli_run::World,
-    pub(super) store: std::path::PathBuf,
+    pub(super) world: World,
+    pub(super) store: PathBuf,
     pub(super) log: String,
 }
 
@@ -214,7 +209,7 @@ pub(super) fn run_job(
     endpoint: &str,
     ca: &Path,
     made: &mut Made,
-    stage: impl FnOnce(&crate::support::cli_run::World),
+    stage: impl FnOnce(&World),
 ) -> Ran {
     let world = world();
     stage(&world);
@@ -255,7 +250,7 @@ pub(super) fn run_job(
         String::from_utf8_lossy(&launched.stderr)
     );
     let job = stdout.trim().to_owned();
-    made.job = Some(job.clone()); // BORROW: the cleanup owns the job id
+    made.jobs.push(job.clone()); // BORROW: the cleanup owns the job id
     let store = world.store();
     let events = store.join("jobs").join(&job).join("events.jsonl");
     let ended = wait_for(Duration::from_secs(600), || {
@@ -267,16 +262,17 @@ pub(super) fn run_job(
     Ran { world, store, log }
 }
 
-/// Runs the experiment `text` once as [`run_job`] does and reads back what the sealed run stored,
-/// the MCP file being the one `place` names: the directory of the run it is written under and
-/// the path it ends in.
-fn run_once(
-    text: &str,
-    endpoint: &str,
-    ca: &Path,
-    place: (&str, &str),
-    made: &mut Made,
-) -> Observed {
+/// A run `candler run` sealed in its own world.
+pub(super) struct Sealed {
+    /// The world the run was made in; dropping it removes its directories.
+    pub(super) world: World,
+    /// The run's directory in the world's store.
+    pub(super) run_dir: PathBuf,
+}
+
+/// Runs the experiment `text` as [`run_job`] does, with the server `parity` staged as its input,
+/// and returns its one sealed run.
+pub(super) fn seal(text: &str, endpoint: &str, ca: &Path, made: &mut Made) -> Sealed {
     let Ran { world, store, log } = run_job(text, endpoint, ca, made, |world| {
         let inputs = world.root.join("inputs").join("servers");
         fs::create_dir_all(&inputs).unwrap();
@@ -293,6 +289,20 @@ fn run_once(
         .map(|entry| entry.path())
         .find(|path| path.join("run.done").is_file())
         .unwrap_or_else(|| panic!("a sealed run\n{log}"));
+    Sealed { world, run_dir }
+}
+
+/// Runs the experiment `text` with [`seal`] and reads back what the sealed run stored, the MCP
+/// file being the one `place` names: the directory of the run it is written under and the path
+/// it ends in.
+fn run_once(
+    text: &str,
+    endpoint: &str,
+    ca: &Path,
+    place: (&str, &str),
+    made: &mut Made,
+) -> Observed {
+    let Sealed { world, run_dir } = seal(text, endpoint, ca, made);
     let inspected = Command::new(env!("CARGO_BIN_EXE_candler"))
         .arg("inspect")
         .arg(&run_dir)
@@ -316,6 +326,28 @@ fn run_once(
     }
 }
 
+/// The experiment both cells share, with the line `[harness]` names left as `@HARNESS@`: the
+/// shape's model replaced by `model`, its prompt by `prompt`, and the server `parity` declared.
+pub(super) fn base_experiment(model: &str, prompt: &str) -> String {
+    let shape = world();
+    let text = fs::read_to_string(&shape.experiment)
+        .unwrap()
+        .replace(&shape.skills.display().to_string(), "@SKILLS@");
+    text.replace("\"plan\"", "\"bypassPermissions\"")
+        .replace("\"fixture-model\"", &format!("\"{model}\""))
+        .replace("say hello", prompt)
+        .replace("wall_s = 30", "wall_s = 300")
+        .replacen(
+            "[harness]\nname = \"claude-code\"",
+            "[harness]\nname = \"@HARNESS@\"",
+            1,
+        )
+        + &format!(
+            "\n[fixed.mcp.servers.{SERVER}]\ncommand = \"python3\"\nargs = [\"servers/parity/parity_mcp.py\"]\n\n\
+             [[inputs]]\nkind = \"servers\"\npath = \"inputs/servers\"\nat = \"servers/parity\"\n"
+        )
+}
+
 /// Guards: README (an MCP server of a cell is installed and its calls are traced alike on every
 /// harness) -- one experiment, run with the real `candler run` on Claude Code and on `OpenCode`,
 /// code mode at its default, shows on each: the declared server among the run's resolved `mcp.*`
@@ -335,32 +367,14 @@ fn parity_one_installed_server_one_traced_call() {
     let before = must(&real, &["ps", "-aq"]);
     let mut made = Made::default();
     made.real.clone_from(&real); // BORROW: the cleanup owns its client path
-    let model = start_fake(&real, &mut made, "parity");
+    let model = start_fake(&real, &mut made, "parity", &[]);
     let (fake, endpoint, ca) = (&model.container, &model.endpoint, &model.ca);
 
     // one experiment file; only the harness line differs
-    let base = {
-        let shape = world();
-        let text = fs::read_to_string(&shape.experiment)
-            .unwrap()
-            .replace(&shape.skills.display().to_string(), "@SKILLS@");
-        text.replace("\"plan\"", "\"bypassPermissions\"")
-            .replace("\"fixture-model\"", "\"p1\"")
-            .replace(
-                "say hello",
-                "Call the MCP tool stamp of the server parity once, then reply done.",
-            )
-            .replace("wall_s = 30", "wall_s = 300")
-            .replacen(
-                "[harness]\nname = \"claude-code\"",
-                "[harness]\nname = \"@HARNESS@\"",
-                1,
-            )
-            + &format!(
-                "\n[fixed.mcp.servers.{SERVER}]\ncommand = \"python3\"\nargs = [\"servers/parity/parity_mcp.py\"]\n\n\
-                 [[inputs]]\nkind = \"servers\"\npath = \"inputs/servers\"\nat = \"servers/parity\"\n"
-            )
-    };
+    let base = base_experiment(
+        "p1",
+        "Call the MCP tool stamp of the server parity once, then reply done.",
+    );
     let claude = experiment(&base, "claude-code");
     let opencode = experiment(&base, "opencode");
     assert_eq!(

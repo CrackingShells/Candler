@@ -119,6 +119,32 @@
       "speed": "standard"
     }
   },
+  "streams/shell_exit_stderr_timeout": {
+    "run.cost_usd": 0.0024000000000000002,
+    "run.num_turns": 1,
+    "run.usage": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "fallback_credit": null,
+      "inference_geo": "",
+      "input_tokens": 100,
+      "iterations": [],
+      "output_tokens": 20,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "server_tool_use": {
+        "web_fetch_requests": 0,
+        "web_search_requests": 0
+      },
+      "service_tier": "standard",
+      "speed": "standard"
+    }
+  },
   "streams/subagent_denials": {
     "run.cost_usd": 0.50419205,
     "run.num_turns": 32,
@@ -181,6 +207,32 @@
       "cache_read_input_tokens": 70,
       "input_tokens": 7,
       "output_tokens": 3
+    }
+  },
+  "streams/shell_exit_semantics": {
+    "run.cost_usd": 0.005600000000000001,
+    "run.num_turns": 7,
+    "run.usage": {
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 0,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "cache_creation_input_tokens": 0,
+      "cache_read_input_tokens": 0,
+      "fallback_credit": null,
+      "inference_geo": "",
+      "input_tokens": 700,
+      "iterations": [],
+      "output_tokens": 140,
+      "output_tokens_details": {
+        "thinking_tokens": 0
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "speed": "standard"
     }
   }
 }

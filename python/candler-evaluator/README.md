@@ -17,11 +17,23 @@ grades one item, and may expose `NAME`, `VERSION`, `DIST`, `INSTRUMENTS`, `KIND_
   `blocked`, `not_measured`, `not_applicable`) and the optional `value`, `weight`, `cause` and
   `evidence`. The helper checks the result against the outcome rules.
 - **`RunContext`** is what a kind may read of one run: `root`, `artifacts`, `metadata`,
-  `scratch`, `run`, `raw`, `trace`, `artifact_files`, `snapshots` and `inputs`. A kind never
-  imports the class; it reads the object it is given.
+  `scratch`, `run`, `raw`, `trace`, `manifest`, `artifact_files`, `snapshots` and `inputs`. A
+  kind never imports the class; it reads the object it is given. `trace` and `manifest` are a
+  `ServedFile` (`path` relative to `root`, `abs`, `sha256`) or `None`; `raw` is a tuple of
+  mappings with `stream`, `path` (absolute, a gzip-compressed `.jsonl.gz` file) and `sha256`.
+  `candler_evaluator.read_trace(context.trace)` yields the trace's records as models generated
+  from `normalised-trace.schema.json` and raises `pydantic.ValidationError` at a line those
+  models refuse: not JSON, an unknown field, a `null` on an optional field or a wrong type. It
+  raises `TraceOrderError`, a `ValueError`, for a file out of order, as Candler's reader refuses it: an empty file, a
+  record before the header, a second header, a session after an event, a session declared twice.
+  It does not check the rules that relate records, such as `seq` gaps.
 - **`KINDS`** maps each kind's name to its function.
 - **`needs`** says what a kind reads: `artifacts` (globs), `inputs`, `metadata` (field paths),
-  `snapshots` and `trace`. It is set per kind in `KIND_SPECS`.
+  `snapshots`, `trace`, `raw` and `manifest` (the last three are booleans). It is set per kind in
+  `KIND_SPECS`. A request is served the union of the needs of the kinds it sends, so a part is
+  served when a kind of the request declares it, and every kind of the request can read it.
+  Declaring `trace` hands the kind the run's system text and first message verbatim
+  (`context_start`), which may be the treatment under test.
 - **`params_schema`** is the JSON Schema of a kind's params, also set per kind in `KIND_SPECS`.
   `default_deadline_ms` sits beside them.
 

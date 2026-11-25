@@ -18,3 +18,42 @@ tool_use_id = "toolu_01AKgpUZerL3kMxQpnDLXUkR"
 reason = "permission-rule"
 by = "harness"
 session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_012rTgNpxZyZxLFCakSM5Fx7"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_01AKgpUZerL3kMxQpnDLXUkR"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_01LpYWyPZvNwWHva7Y6edrPe"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Edit"
+
+[[exits]]
+tool_use_id = "toolu_012uXd7KUg9hFtSEeNVbQRPC"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_0168p7t7DkWTHPmT4t2NGmmv"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01CTGsqHxs2Eh1FgmayamWCx"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Skill"
+
+[[exits]]
+tool_use_id = "toolu_012RVMjQuf6QtWV4R68SRzVj"
+session = "6e52d785-692b-43e6-9145-1a1eb5de265d"
+tool = "Write"

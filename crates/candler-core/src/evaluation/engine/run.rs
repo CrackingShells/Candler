@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use candler_schemas::evaluation::{EvaluateParams, Item, Needs};
+use candler_schemas::evaluation::{EvaluateParams, Item};
 use candler_schemas::execution::EventPayload;
 use candler_schemas::outcome::{Instrument, OutcomeRecord, Status};
 use candler_schemas::primitives::{
@@ -21,7 +21,7 @@ use tokio::sync::watch;
 use super::plan::{Batch, RunPlan};
 use super::write::{self, Stamp};
 use crate::evaluation::client::{Client, ClientError, EvaluatorCommand, ItemOutcome};
-use crate::evaluation::context::{assemble, materialise};
+use crate::evaluation::context::{assemble, materialise, union_needs};
 use crate::evaluation::registry::CheckedEntry;
 use crate::jobs::slots::{Holder, Slot, SlotError, Slots};
 use crate::store::Store;
@@ -617,31 +617,7 @@ async fn send(
     batch_ids: &BTreeSet<ExpectationId>,
     ticket: &mut Ticket,
 ) -> Result<(crate::evaluation::client::ClientOutcome, Digest), Fault> {
-    let mut needs = Needs::default();
-    for checked in sendable {
-        let more = &checked.spec.needs;
-        needs.trace |= more.trace;
-        for artifact in &more.artifacts {
-            if !needs.artifacts.contains(artifact) {
-                needs.artifacts.push(artifact.clone()); // BORROW: the union owns its globs
-            }
-        }
-        for kind in &more.snapshots {
-            if !needs.snapshots.contains(kind) {
-                needs.snapshots.push(kind.clone()); // BORROW: the union owns its kinds
-            }
-        }
-        for kind in &more.inputs {
-            if !needs.inputs.contains(kind) {
-                needs.inputs.push(kind.clone()); // BORROW: the union owns its kinds
-            }
-        }
-        for path in &more.metadata {
-            if !needs.metadata.contains(path) {
-                needs.metadata.push(path.clone()); // BORROW: the union owns its paths
-            }
-        }
-    }
+    let needs = union_needs(sendable.iter().map(|checked| &checked.spec.needs));
     let store = shared.store.clone(); // BORROW: the blocking task owns a handle on the store
     let key = run.clone(); // BORROW: the blocking task owns the key
     let dir = shared.work.join(ticket.minted.as_str());

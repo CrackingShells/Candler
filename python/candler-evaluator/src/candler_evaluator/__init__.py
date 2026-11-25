@@ -4,9 +4,20 @@ from typing import Any
 
 from .frames import FrameWriter
 from .loop import main, serve
-from .plugin import Outcome, Plugin
+from .plugin import Outcome, Plugin, ServedFile
+from .trace import TraceOrderError, read_trace
 
-__all__ = ["FrameWriter", "Outcome", "Plugin", "__version__", "main", "serve"]
+__all__ = [
+    "FrameWriter",
+    "Outcome",
+    "Plugin",
+    "ServedFile",
+    "TraceOrderError",
+    "__version__",
+    "main",
+    "read_trace",
+    "serve",
+]
 
 
 def __getattr__(name: str) -> Any:

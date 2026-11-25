@@ -12,6 +12,7 @@ use candler_harness::reader::{FrameIn, TraceReader};
 use candler_harness::spec::Confidence;
 use candler_harness_claude_code::{ClaudeCodeReader, READER};
 use candler_schemas::primitives::Digest;
+use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{
     Cap, EndedBy, EventKind, RawFileRef, Session, SessionEvent, ToolOrigin, TraceFile, TraceHeader,
@@ -266,6 +267,135 @@ fn stream_with(result: Option<&str>) -> Vec<Vec<u8>> {
     lines
 }
 
+/// A result's exit as a row states it: session, call id, the name of the call, and the exit code when there is one.
+type ExitRow<'a> = (&'a str, &'a str, &'a str, Option<i32>);
+
+fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow<'_>>> {
+    let Some(rows) = stream.expected.get("exits") else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for entry in rows.as_array().ok_or("`exits` is not a list")? {
+        let entry = table(entry, "an exit row")?;
+        let code = entry
+            .get("code")
+            .map(|code| -> Res<i32> { Ok(i32::try_from(code.as_integer().ok_or("code")?)?) })
+            .transpose()?;
+        out.push((
+            text(entry, "session")?,
+            text(entry, "tool_use_id")?,
+            text(entry, "tool")?,
+            code,
+        ));
+    }
+    Ok(out)
+}
+
+/// Checks each row against the reader's result of that call in that session: the call has the name the row gives, and the result has the exit code the row gives, or none.
+fn check_exits(name: &str, output: &Output, rows: &[ExitRow<'_>]) -> Res<()> {
+    for &(session, id, tool, want) in rows {
+        let held: Vec<&SessionEvent> = output
+            .events
+            .iter()
+            .filter(|record| {
+                record.session.as_str() == session
+                    && record
+                        .event
+                        .span
+                        .as_ref()
+                        .is_some_and(|span| span.as_str() == id)
+            })
+            .collect();
+        let called: Vec<&str> = held
+            .iter()
+            .filter_map(|record| {
+                if let EventKind::ToolCall { name, .. } = &record.event.kind {
+                    Some(name.as_str())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if called != [tool] {
+            return Err(
+                format!("{name}: the call {id} in {session} is {called:?}, want {tool}").into(),
+            );
+        }
+        let mut results = Vec::new();
+        for record in &held {
+            if let EventKind::ToolResult { exit, .. } = &record.event.kind {
+                results.push(match exit {
+                    None => None,
+                    Some(ExitStatus::Code { code }) => Some(*code),
+                    Some(other) => return Err(format!("{name}: {id}: unexpected {other:?}").into()),
+                });
+            }
+        }
+        if results != [want] {
+            return Err(format!(
+                "{name}: exit of the result of {tool} call {id} in {session} is {results:?}, want {want:?}"
+            )
+            .into());
+        }
+    }
+    Ok(())
+}
+
+/// Checks that no result without a span carries an exit, and that the stream has one.
+fn check_spanless_results(name: &str, output: &Output) -> Res<()> {
+    let mut seen = 0_usize;
+    for record in &output.events {
+        if let (EventKind::ToolResult { exit, .. }, None) = (&record.event.kind, &record.event.span)
+        {
+            seen += 1;
+            if exit.is_some() {
+                return Err(format!("{name}: a result joined to no call has exit {exit:?}").into());
+            }
+        }
+    }
+    if seen == 0 {
+        return Err(format!("{name}: the stream has no result without a span").into());
+    }
+    Ok(())
+}
+
+/// Lines in which a call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`, so the result in each session gets the exit of its own call: `X` answers the root result first, `Y` the child result first; a `Bash` call whose result is not an error but reports `interrupted`; and a result whose id is no span (it holds white space), which joins no call.
+fn exit_join_stream() -> Vec<Vec<u8>> {
+    let bash = |id: &str| {
+        format!(r#"{{"type":"tool_use","id":"{id}","name":"Bash","input":{{"command":"true"}}}}"#)
+    };
+    let read =
+        |id: &str| format!(r#"{{"type":"tool_use","id":"{id}","name":"Read","input":{{}}}}"#);
+    let agent = r#"{"type":"tool_use","id":"A","name":"Agent","input":{}}"#;
+    let result = |id: &str, text: &str| {
+        format!(r#"{{"type":"tool_result","tool_use_id":"{id}","content":"{text}"}}"#)
+    };
+    let line = |kind: &str, parent: &str, blocks: &[&str]| {
+        format!(
+            r#"{{"type":"{kind}","session_id":"S",{parent}"message":{{"role":"{kind}","content":[{}]}}}}"#,
+            blocks.join(",")
+        )
+        .into_bytes()
+    };
+    let cut = r#"{"type":"tool_use","id":"I","name":"Bash","input":{"command":"sleep 9"}}"#;
+    let child = r#""parent_tool_use_id":"A","#;
+    let mut lines = stream_with(None);
+    lines.push(line("assistant", "", &[agent, &read("X"), &read("Y")]));
+    lines.push(line("assistant", child, &[&bash("X"), &bash("Y")]));
+    lines.push(line("user", "", &[&result("X", "file text")]));
+    lines.push(line("user", child, &[&result("X", "")]));
+    lines.push(line("user", child, &[&result("Y", "")]));
+    lines.push(line("user", "", &[&result("Y", "file text")]));
+    lines.push(line("assistant", "", &[cut]));
+    lines.push(line(
+        "user",
+        r#""tool_use_result":{"interrupted":true},"#,
+        &[&result("I", "partial")],
+    ));
+    lines.push(line("user", "", &[&result("no span", "")]));
+    lines
+}
+
 /// Guards: Reader correctness — sessions, subagent ids, denials by the harness, MCP origins, unreadable lines and `ended_by` of each stream, and `ended_by` for each result shape, are what the raw lines say. Oracle: the hand-written `expected.toml` of each stream, written from `jq` over its lines, and literal result lines with the ends R01 §Ends gives them.
 #[test]
 fn expected_facts() -> Res<()> {
@@ -312,6 +442,7 @@ fn expected_facts() -> Res<()> {
             expected_denials(&stream)?,
             "{name}: denials (call, reason, by, session)"
         );
+        check_exits(name, &output, &expected_exits(&stream)?)?;
         for row in expected_frame_sessions(&stream)? {
             let (frame, session) = row;
             let holders: BTreeSet<String> = output
@@ -424,6 +555,16 @@ fn expected_facts() -> Res<()> {
             .clone(); // BORROW: owned end to compare
         assert_eq!(got, want, "result line {result:?}");
     }
+    let shared = run(&exit_join_stream(), false)?;
+    let rows: [ExitRow<'_>; 5] = [
+        ("S", "X", "Read", None),
+        ("S/A", "X", "Bash", Some(0)),
+        ("S", "Y", "Read", None),
+        ("S/A", "Y", "Bash", Some(0)),
+        ("S", "I", "Bash", None),
+    ];
+    check_exits("shared call id", &shared, &rows)?;
+    check_spanless_results("shared call id", &shared)?;
     Ok(())
 }
 

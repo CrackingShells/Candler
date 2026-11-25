@@ -10,7 +10,7 @@ use candler_schemas::trace::{
 };
 use serde_json::{Map, Value};
 
-use crate::parse::Draft;
+use crate::parse::{Draft, SHELL_TOOL};
 use crate::usage::Tokens;
 
 /// How a root session ended, from its last `result` line.
@@ -77,6 +77,8 @@ pub(crate) struct Registry {
     index: HashMap<SessionId, usize>,
     /// The session that holds each call, by call id.
     owner: HashMap<String, usize>,
+    /// The session and call id of each `Bash` call.
+    shell: HashSet<(usize, String)>,
     /// The ids of the calls that have a result.
     answered: HashSet<String>,
     /// The ids of the messages whose usage was counted.
@@ -217,22 +219,35 @@ impl Registry {
 
     /// The event `draft` of the session `target`, read from the frame `raw_ref` at time `at`.
     ///
-    /// A call records its session as the holder of the call id, and a result records its call as
-    /// answered.
+    /// A call records its session as the holder of the call id, and a `Bash` call records its session and id as a shell
+    /// call. A result records its call as answered and keeps its exit only when its call is a `Bash` call of the same
+    /// session; a result that joins no call (its id is no span) has no exit.
     pub(crate) fn emit(
         &mut self,
         target: usize,
         raw_ref: &RawRef,
         at: Option<&Timestamp>,
-        draft: Draft,
+        mut draft: Draft,
     ) -> Result<SessionEvent, ReaderError> {
-        if let Some(span) = &draft.span {
-            // BORROW: .as_str().to_owned() makes the owned call id the maps keep
-            let call = span.as_str().to_owned();
-            if matches!(draft.kind, EventKind::ToolCall { .. }) {
+        // BORROW: .as_str().to_owned() makes the owned call id the maps keep
+        let call = draft.span.as_ref().map(|span| span.as_str().to_owned());
+        if let EventKind::ToolCall { name, .. } = &draft.kind {
+            if let Some(call) = call {
+                if name == SHELL_TOOL {
+                    // BORROW: .clone() keeps the id for the holder map
+                    self.shell.insert((target, call.clone()));
+                }
                 self.owner.insert(call, target);
-            } else if matches!(draft.kind, EventKind::ToolResult { .. }) {
+            }
+        } else if let EventKind::ToolResult { exit, .. } = &mut draft.kind {
+            if let Some(call) = call {
+                // BORROW: .clone() makes the owned key the set looks up
+                if !self.shell.contains(&(target, call.clone())) {
+                    *exit = None;
+                }
                 self.answered.insert(call);
+            } else {
+                *exit = None;
             }
         }
         let node = self.node(target)?;

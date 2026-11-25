@@ -124,7 +124,7 @@ fn wiring_collect_exports_before_the_destroy_and_the_export_is_the_trace() {
         let first: Value =
             serde_json::from_str(trace.lines().next().expect("a header")).expect("header JSON");
         assert_eq!(
-            first["reader"], "opencode-export@0.1.0",
+            first["reader"], "opencode-export@0.2.0",
             "{case}: the trace names the export reader: {first}"
         );
         assert!(

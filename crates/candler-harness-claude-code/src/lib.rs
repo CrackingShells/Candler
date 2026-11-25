@@ -53,11 +53,20 @@ pub fn supported() -> semver::VersionReq {
 /// The Claude Code version the base image installs, which [`supported`] accepts.
 pub const PINNED: semver::Version = semver::Version::new(2, 1, 311);
 
-/// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
-pub const READER: &str = "claude-code-stream-json@0.2.0";
+/// Defines [`READER`] and `READER_VERSION` from the one version written here, so the identity text and the version the
+/// reader reports cannot differ.
+macro_rules! reader_version {
+    ($major:literal, $minor:literal, $patch:literal) => {
+        /// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
+        pub const READER: &str =
+            concat!("claude-code-stream-json@", $major, ".", $minor, ".", $patch);
 
-/// The version of [`READER`].
-const READER_VERSION: semver::Version = semver::Version::new(0, 2, 0);
+        /// The version of [`READER`].
+        const READER_VERSION: semver::Version = semver::Version::new($major, $minor, $patch);
+    };
+}
+
+reader_version!(0, 4, 0);
 
 /// A frame that arrived before any session was known.
 struct Held {

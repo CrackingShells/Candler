@@ -14,6 +14,7 @@ use candler_core::jobs::dir::JobDir;
 use candler_core::jobs::lock::{JobLock, LockState};
 use candler_core::store::layout::StoreLayout;
 use candler_schemas::primitives::JobId;
+use serde_json::Value;
 
 use super::cli_run::{World, wait_for};
 
@@ -114,25 +115,27 @@ fn helper() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../python/candler-evaluator")
 }
 
-/// The fixture plug-in's directory.
-fn fixture() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/plugins/needs-inputs")
+/// The directory of the fixture plug-in `name` below `tests/fixtures/plugins`.
+pub fn fixture(name: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/plugins")
+        .join(name)
 }
 
-/// The fixture plug-in's suite.
+/// The suite of the `needs-inputs` fixture plug-in.
 pub fn suite() -> PathBuf {
-    fixture().join("suite.toml")
+    fixture("needs-inputs").join("suite.toml")
 }
 
-/// Sets the fixture plug-in up in the world: its manifest with the kinds directory filled in,
-/// and a link to the helper's project. Returns the manifest.
-pub fn plugin(world: &World) -> PathBuf {
+/// Sets the fixture plug-in in `fixture` up in the world: its manifest with the kinds directory
+/// filled in, and a link to the helper's project. Returns the manifest.
+pub fn plugin(world: &World, fixture: &Path) -> PathBuf {
     let dir = world.root.join("plugin");
     fs::create_dir_all(&dir).unwrap();
     symlink(helper(), dir.join("env")).unwrap();
-    let manifest = fs::read_to_string(fixture().join("plugin.toml"))
+    let manifest = fs::read_to_string(fixture.join("plugin.toml"))
         .unwrap()
-        .replace("@KINDS@", &fixture().join("kinds").display().to_string());
+        .replace("@KINDS@", &fixture.join("kinds").display().to_string());
     let path = dir.join("plugin.toml");
     fs::write(&path, manifest).unwrap();
     path
@@ -163,9 +166,9 @@ pub fn sync_environment(world: &World) {
     fs::write(dir.join("ready"), key.digest()).unwrap();
 }
 
-/// Runs `candler evaluate` over the store of the world with the fixture plug-in and suite, from a
-/// project directory whose `candler.toml` lists the manifest's directory under `plugins.dirs`.
-pub fn evaluate(world: &World, manifest: &Path) -> Output {
+/// Runs `candler evaluate` over the store of the world with `suite`, from a project directory
+/// whose `candler.toml` lists the manifest's directory under `plugins.dirs`.
+pub fn evaluate(world: &World, manifest: &Path, suite: &Path) -> Output {
     let project = world.root.join("project");
     fs::create_dir_all(&project).unwrap();
     let dir = manifest.parent().unwrap();
@@ -178,7 +181,7 @@ pub fn evaluate(world: &World, manifest: &Path) -> Output {
         .arg("--store")
         .arg(world.store())
         .arg("evaluate")
-        .arg(suite())
+        .arg(suite)
         .current_dir(&project)
         .env_remove("CANDLER_STORE")
         .env("HOME", world.root.join("home"))
@@ -187,6 +190,22 @@ pub fn evaluate(world: &World, manifest: &Path) -> Output {
         .stdin(Stdio::null())
         .output()
         .unwrap()
+}
+
+/// Every outcome record of the world's store, over all its `jsonl` files.
+pub fn outcome_records(world: &World) -> Vec<Value> {
+    let layout = StoreLayout::new(&world.store());
+    entries_under(&layout.outcomes_dir())
+        .iter()
+        .filter(|path| path.extension().is_some_and(|ext| ext == "jsonl"))
+        .flat_map(|path| {
+            fs::read_to_string(path)
+                .unwrap()
+                .lines()
+                .map(|line| serde_json::from_str::<Value>(line).unwrap())
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// Waits for the job `launch` printed to end and release its lock, and returns its id.

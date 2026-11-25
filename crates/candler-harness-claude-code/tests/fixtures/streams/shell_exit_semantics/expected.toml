@@ -1,0 +1,57 @@
+# Hand-written from the raw lines with jq. Recorded by real Claude Code on the parity rig: one turn
+# of four Bash calls (`echo hello | grep zzz`; `printf a > a.txt; printf b > b.txt; diff a.txt b.txt`;
+# `test -f /missing`; `echo fine`), then the ToolSearch and the MCP call `stamp` the fake model
+# scripts after them. No denial, no subagent. The first three commands exit 1; Claude Code
+# writes `is_error: false` for each and names no code, only a `returnCodeInterpretation` in the line's
+# `tool_use_result` (`jq -c 'select(.type == "user") | .tool_use_result.returnCodeInterpretation'`).
+stream = "agent_stream.jsonl.gz"
+frames = 15
+blank_frames = []
+non_json_frames = []
+subagent_ids = []
+denials = []
+mcp_calls = [
+  { tool_use_id = "toolu_fake_stamp", server = "parity" },
+]
+frame_sessions = []
+cost_reporting = "running"
+tokens_reporting = "per_turn"
+
+[[sessions]]
+id = "654ac8db-b358-475c-94fc-31ff9f84be61"
+ended_by = "completed"
+
+# Exit of each listed result, from jq over the raw lines. The rule: Bash only; "Exit code N" leading the
+# content of an error result -> N; a non-error result whose `tool_use_result` has a
+# `returnCodeInterpretation` (Claude Code's own text for a nonzero exit it does not flag as an error) -> no code,
+# the harness states none; any other non-error result -> 0. `code` absent means no exit.
+[[exits]]
+tool_use_id = "toolu_fake_g1_0"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_fake_g1_1"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_fake_g1_2"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_fake_g1_3"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_fake_search"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "ToolSearch"
+
+[[exits]]
+tool_use_id = "toolu_fake_stamp"
+session = "654ac8db-b358-475c-94fc-31ff9f84be61"
+tool = "mcp__parity__stamp"

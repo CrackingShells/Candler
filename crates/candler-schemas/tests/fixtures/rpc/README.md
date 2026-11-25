@@ -10,7 +10,8 @@ Valid, each must be accepted:
 |:-----|:-------|
 | `request_describe`, `request_evaluate` | §4 Request: `jsonrpc` "2.0", `method`, `params`, a string `id` (the protocol mints UUIDv7 text ids) |
 | `notification_outcome`, `notification_progress`, `notification_log`, `notification_cancel` | §4.1 Notification: a request without `id` |
-| `response_describe`, `response_evaluate` | §5 Response: `jsonrpc`, `id`, `result` |
+| `response_describe`, `response_evaluate` | §5 Response: `jsonrpc`, `id`, `result`; `response_describe`'s needs omit `raw` and `manifest`, which read as `false` |
+| `response_describe_needs_raw_manifest` | §5 Response: a describe result whose needs set `raw` and `manifest` |
 | `error_cancelled` | §5.1 Error object: integer `code`, `message`; `-32800` is the protocol's cancelled request |
 
 Invalid, each is one fault on a valid base and must be refused:
@@ -23,3 +24,4 @@ Invalid, each is one fault on a valid base and must be refused:
 | `id_null` | `id` is `null` | §4: the protocol never uses a null id |
 | `unknown_key` | a top-level key `extra` | §4: the members are those listed |
 | `result_and_method` | `result` beside `method` | §5: `result` belongs to a response only |
+| `needs_raw_not_boolean` | a kind's `needs.raw` is the string `"yes"` | R01 §Evaluator protocol: `needs.raw` is a boolean |

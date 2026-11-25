@@ -78,6 +78,10 @@ Wire line: `schemas@0.14.0`.
 | `event.kind.denied` | `Denial` | optional | - |
 | `event.kind.denied.by` | `"harness" \| "hook" \| "user"` | required | - |
 | `event.kind.denied.reason` | `string` | optional | - |
+| `event.kind.exit` | `ExitStatus` | optional | - |
+| `event.kind.exit.code` | `integer` | required (event.kind.exit.kind = code) | - |
+| `event.kind.exit.kind` | `"code" \| "signal"` | required | - |
+| `event.kind.exit.signal` | `integer` | required (event.kind.exit.kind = signal) | - |
 | `event.kind.is_error` | `boolean` | required (event.kind.kind = tool_result) | - |
 | `event.kind.cache_creation_tokens` | `integer` | required (event.kind.kind = usage) | - |
 | `event.kind.cache_read_tokens` | `integer` | required (event.kind.kind = usage) | - |

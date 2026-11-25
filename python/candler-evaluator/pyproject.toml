@@ -1,11 +1,11 @@
 [project]
 name = "candler-evaluator"
-version = "0.1.0"
+version = "0.2.0"
 description = "Helper for writing Candler evaluator plug-ins in Python"
 readme = "README.md"
 requires-python = ">=3.10"
 license = "AGPL-3.0-or-later"
-dependencies = ["pydantic>=2.7"]
+dependencies = ["pydantic>=2.14"]
 
 [dependency-groups]
 dev = [

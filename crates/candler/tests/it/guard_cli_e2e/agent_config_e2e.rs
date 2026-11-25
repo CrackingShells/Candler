@@ -279,7 +279,7 @@ fn guard_agent_config_e2e() {
     let real = real_docker();
     let mut made = Made::default();
     made.real.clone_from(&real); // BORROW: the cleanup owns its client path
-    let model: Fake = start_fake(&real, &mut made, "agentconfig");
+    let model: Fake = start_fake(&real, &mut made, "agentconfig", &[]);
 
     let text = base(&agent_config());
     let mut failures = Vec::new();
@@ -304,7 +304,7 @@ fn guard_agent_config_e2e() {
         let experiment = text.replace("@HARNESS@", harness);
         let skip = records(&real, &model.container).lines().count();
         let ran = run_job(&experiment, &model.endpoint, &model.ca, &mut made, |_| {});
-        jobs.extend(made.job.clone()); // BORROW: the leftover check names every job
+        jobs.extend(made.jobs.last().cloned()); // BORROW: the leftover check names every job
         let config = ran.world.root.join("config");
         let resolved = resolve(&ran.world, &config);
         if ![global, START_CC, START_OC, BLOCKED]
@@ -455,7 +455,7 @@ fn guard_harness_check_refuses() {
     let real = real_docker();
     let mut made = Made::default();
     made.real.clone_from(&real); // BORROW: the cleanup owns its client path
-    let model: Fake = start_fake(&real, &mut made, "harnesscheck");
+    let model: Fake = start_fake(&real, &mut made, "harnesscheck", &[]);
 
     let mut failures = Vec::new();
     let mut jobs = Vec::new();
@@ -463,7 +463,7 @@ fn guard_harness_check_refuses() {
         for (label, hooks) in [("invalid", payload.invalid), ("valid", payload.valid)] {
             let experiment = base(hooks).replace("@HARNESS@", payload.harness);
             let ran = run_job(&experiment, &model.endpoint, &model.ca, &mut made, |_| {});
-            let job = made.job.clone().unwrap_or_default(); // BORROW: the job id names its log
+            let job = made.jobs.last().cloned().unwrap_or_default(); // BORROW: the job id names its log
             jobs.push(job.clone()); // BORROW: the leftover check names every job
             let supervisor =
                 fs::read_to_string(ran.store.join("jobs").join(&job).join("supervisor.log"))

@@ -1,22 +1,46 @@
-//! The context of one run for one request: its assembly from a suite's needs in [`assemble()`]
-//! the one file rule in `rule`, and the private workspace that copies the artifacts and the
-//! digest of what was copied in [`materialise()`]. The inputs a need names are copied below
-//! `inputs/<kind>/` of the same workspace.
+//! The context of one run for one request: its assembly from a suite's needs in [`assemble()`],
+//! the one file rule in `rule`, and the private workspace that copies the chosen stored files and
+//! the digest of what was copied in [`materialise()`]. The artifacts are copied below `outputs/`,
+//! the files of each input below `inputs/<kind>/`, the trace to `trace.jsonl`, the raw streams to
+//! `raw/<stream>.jsonl.gz` and the manifest to `manifest.json` of the same workspace.
 
+use std::fmt;
 use std::io;
 use std::path::PathBuf;
 
 use candler_schemas::evaluation::EvaluationError;
+use candler_schemas::primitives::RunKey;
 
 use crate::store::StoreError;
 
 mod assemble;
 mod materialise;
 mod rule;
+mod union;
 
-pub use assemble::{Assembled, AssembledArtifact, AssembledInput, assemble};
+pub use assemble::{Assembled, AssembledFile, AssembledInput, Served, assemble};
 pub use materialise::{Workspace, materialise};
 pub use rule::{FileRule, file_rule_keeps};
+pub use union::union_needs;
+
+/// A part of a stored run that a kind may declare and a run may lack.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RunPart {
+    /// The normalised trace, `trace.jsonl`.
+    Trace,
+    /// The raw streams, `raw/<stream>.jsonl.gz`.
+    Raw,
+}
+
+impl fmt::Display for RunPart {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Trace => "trace",
+            Self::Raw => "raw",
+        })
+    }
+}
 
 /// Why a run's context could not be assembled or materialised.
 #[derive(Debug, thiserror::Error)]
@@ -53,6 +77,14 @@ pub enum ContextError {
         /// Why the run cannot serve it.
         reason: String,
     },
+    /// A need names a part of the run that the run does not store: its trace or its raw streams.
+    #[error("run {run} stores no `{part}`")]
+    PartMissing {
+        /// The key of the run.
+        run: RunKey,
+        /// The part the run lacks.
+        part: RunPart,
+    },
     /// A metadata need names a path the run manifest does not hold with a value.
     #[error("metadata path `{path}` {detail}")]
     MissingMetadata {
@@ -79,14 +111,17 @@ pub enum ContextError {
         /// The error of the call.
         source: io::Error,
     },
-    /// A copied file does not have the digest the store records for its blob.
+    /// A copy of a stored file does not have the digest recorded for it: the store's record for
+    /// a blob, the hash taken at assembly for the trace, a raw stream or the manifest.
     #[error(
-        "the blob of `{path}` is corrupt: the store records {expected} and the copy is {actual}"
+        "the stored file {} no longer has the digest recorded for it: \
+         expected {expected}, its copy is {actual}",
+        stored.display()
     )]
     CorruptBlob {
-        /// The artifact path relative to `outputs/`.
-        path: String,
-        /// The digest the store records.
+        /// The stored file that was copied.
+        stored: PathBuf,
+        /// The digest recorded for it.
         expected: String,
         /// The digest of the copy.
         actual: String,

@@ -73,14 +73,14 @@ fn ere_escape(text: &str) -> String {
 #[derive(Default)]
 pub(super) struct Made {
     pub(super) real: PathBuf,
-    pub(super) job: Option<String>,
+    pub(super) jobs: Vec<String>,
     pub(super) containers: Vec<String>,
     pub(super) images: Vec<String>,
 }
 
 impl Drop for Made {
     fn drop(&mut self) {
-        if let Some(job) = &self.job {
+        for job in &self.jobs {
             let filter = format!("label=candler.job={job}");
             for kind in [["ps", "-aq"], ["network", "ls"]] {
                 let mut args: Vec<&str> = kind.to_vec();
@@ -394,7 +394,7 @@ fn i8_canary_never_reaches_the_agent() {
         String::from_utf8_lossy(&launched.stderr)
     );
     let job = stdout.trim().to_owned();
-    made.job = Some(job.clone()); // BORROW: the cleanup owns the job id
+    made.jobs.push(job.clone()); // BORROW: the cleanup owns the job id
     let dir = JobDir::open(
         &StoreLayout::new(&(world.work.join(".candler").join("store"))),
         &job.parse().unwrap(),

@@ -1042,15 +1042,20 @@ as the evaluator's log.
 | ↳ result | | response | `{reported: n}` |
 | `cancel` | core → evaluator | notification | request id; the evaluator answers `evaluate` with error `-32800` (request cancelled) |
 
-**`needs`** = `{trace: bool, artifacts[] (run-relative globs), snapshots[] (kinds), inputs[]
-(kinds), metadata[] (run-manifest field paths)}`. `resolve` checks every need the core can meet
+**`needs`** = `{trace: bool, raw: bool, manifest: bool, artifacts[] (globs relative to the run, each starting with `outputs/`),
+snapshots[] (kinds), inputs[] (kinds), metadata[] (run-manifest field paths)}`; `raw` and
+`manifest` read as `false` when absent. `resolve` checks every need the core can meet
 without a run; an `inputs` need for `build_inputs` is refused there, by name. A need a run cannot
 meet, such as a kind the run holds in neither list, is refused for that run, by name.
+The core builds one context per request, from the union of the needs of the kinds the request
+sends; a part the run does not store refuses the whole request.
 
 **Run context:** `run` (key); `root` (a read-only, workspace-shaped view of the run: content-
-addressed blobs materialised under their workspace paths by hard links or clones, so `domain.py`
-sits beside `problems.py`); `trace` (normalised trace file); `raw[]`; `artifacts[] {path
-(run-relative), abs, sha256}`; `snapshots[] {kind, path, digest}`; `inputs[] {kind, path, digest}`
+addressed blobs materialised under their workspace paths as private copies, so `domain.py`
+sits beside `problems.py`); `trace {path, abs, sha256}` (the normalised trace file) and `manifest {path, abs, sha256}`
+(the run manifest), each present only when a kind of the request needs it, with `path` relative to `root`;
+`raw[] {stream, path, sha256}` (`path` absolute; the stream is gzip-compressed JSON lines, `.jsonl.gz`);
+`artifacts[] {path (relative to the run's outputs), abs, sha256}`; `snapshots[] {kind, path, digest}`; `inputs[] {kind, path, digest}`
 (a need for kind K is served from `comparable.inputs` or from `evaluation_inputs`, with `path` a
 read-only tree: its files read-only, its directories writable, as under `outputs/`; an input only
 the evaluators see never enters the isolation, I8); `metadata` (the declared manifest fields). Absolute paths are valid where the
@@ -1065,8 +1070,12 @@ them as optional is released.
 
 - `context_digest` covers the projection `{artifacts: [{path, sha256}], snapshots: [{kind,
   digest}], inputs: [{kind, digest}], metadata: {<field path>: value}}`: lists sorted by `path` or
-  by `(kind, digest)`, every key present (lists possibly empty). Absolute paths, `root`, `trace`,
-  `raw[]` and `scratch` are outside it: they say where the run is, not what was graded.
+  by `(kind, digest)`, every key present (lists possibly empty). Each served part adds a key, and
+  only when it is served: `trace` (its sha256), `raw` (`[{stream, sha256}]` sorted by `stream`)
+  and `manifest` (its sha256), so a context that serves none of them has the digest of the
+  projection above. The run key, `root`, `scratch`, every absolute path and the relative paths
+  of the trace and the manifest are outside it: they say where the run is, not what was graded.
+  An artifact's `path` is inside it.
 - `suite_entry_digest` covers `{kind, params, role, depends_on, applies_to?}` of one suite entry:
   `depends_on` sorted, `applies_to` omitted when absent. `id`, `group`, `evaluator` and
   `deadline_ms` are outside it, so renaming an expectation or moving its deadline keeps its digest.
@@ -1252,7 +1261,7 @@ never compares an inventory with one of another source. The census names no serv
 ended_at?, ended_by, parent_session?, raw_ref}`; `Event {seq, at?, kind, span?, raw_ref, ext}` with
 kinds `context_start` (`system`, `first_message`: the run's first model request that carries tools, as the
 gateway received it; the root session's first event), `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
-call that bundles several MCP calls), `tool_result` (`is_error`, `denied?`), `notification`, `usage`
+call that bundles several MCP calls), `tool_result` (`is_error`, `denied?`, `exit?`: the shell call's `ExitStatus` as the harness reported it, absent for a non-shell, denied or uncoded result), `notification`, `usage`
 (`scope: message | session_total`). `at` comes from the harness when it emits one, else from the
 frame time in the raw file, else it is absent.
 

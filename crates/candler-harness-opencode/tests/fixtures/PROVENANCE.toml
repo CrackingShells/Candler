@@ -187,6 +187,37 @@ log = "crates/candler-core/tests/fixtures/gateway/census_log.txt"
 log_sha256 = "55ac88272a5bd76ed130f13d8e872586bda81c048215d8226a58d5084f834a36"
 synthetic = true
 
+# shell_exit_stderr_timeout (probe_shell_shapes, 2026-11-25): real OpenCode 2.2.7 on the parity rig
+# (crates/candler/tests/it/guard_cli_e2e/parity_e2e.rs: the production gateway sidecar, the scripted
+# fake model, --auto), image candler-env:...-src-b062c666af0a-env-e7ca5eaba54a
+# (sha256:e287badacc755d5f2d0de612340f4efe8ab52b9f68ead85b8db2a5abb65b0d64, on candler-base
+# candler.cc_version=2.2.7). Docker 29.9.2, Docker Desktop on macOS. No token was spent.
+# Fake model: the repository's fakemodel.py with one extra script, model id sh1, kept outside the
+# repository: the first prompt is answered with one assistant message holding three shell calls,
+# toolu_fake_sh_exit3 {command: "exit 3"}, toolu_fake_sh_stderr {command: "echo oops >&2; exit 2"}
+# and toolu_fake_sh_timeout {command: "python3 -c 'import time; time.sleep(30)'", timeout: 1000};
+# any later request is answered "done". The timeout is the shell tool's own input field in
+# milliseconds. stdout.jsonl is each raw frame's text of the harness's stdout as one line;
+# export.json is the text of the one frame of the export stream. The single `retry` line in stdout is
+# a 429 the gateway answered to the run's first model request; the retry succeeded.
+[stream.shell_exit_stderr_timeout]
+model = "fake"
+stdout_sha256 = "40445d8d5a3ff50322f8c57f986edb5c5e26cd02ddfbbd2bba6c3be36a8addfb"
+export_sha256 = "ebadedd16e3bbcd6597251af0bbb2ff62c994d0aa913196fa6bb6102c7695fc1"
+
+# shell_exit_semantics (cc_exit_semantics probe, 2026-11-25): real OpenCode 2.2.7 on the same rig and
+# image as shell_exit_stderr_timeout above (--auto; sha256:e287badacc755d5f2d0de612340f4efe8ab52b9f68ead85b8db2a5abb65b0d64).
+# The fake model is the committed assets/docker/fakemodel/fakemodel.py, model id g1, with
+# FAKE_G1_COMMANDS the JSON list ["echo hello | grep zzz", "printf a > a.txt; printf b > b.txt; diff a.txt b.txt",
+# "test -f /missing", "echo fine"], then the MCP call stamp of the server parity. The first three
+# commands exit 1 and OpenCode writes `exit: 1` for each; the fourth writes `exit: 0`. stdout.jsonl is each
+# raw frame's text of the harness's stdout as one line; export.json is the text of the one frame of the
+# export stream.
+[stream.shell_exit_semantics]
+model = "fake"
+stdout_sha256 = "e7351995a187ad391ca6b0b126992621674827d1b361218fe8bee52f1f804d99"
+export_sha256 = "5a6e17fa538f01adc8f31df34a053735cb09bb8c065c7aef3ee2425603da1aef"
+
 # check/: the output of the config check, `opencode run --standalone --print-logs -m probe/none x
 # </dev/null` (stdout, then stderr, as one file; exit 1 on every one), recorded on 2026-11-25 as user
 # agent, --network none, in image candler-base:src-b062c666af0a (OpenCode 2.2.7), cwd /work holding

@@ -744,13 +744,19 @@ fn usage(scope: &str, input: u64, output: u64) -> Value {
 /// reads and writes in their own fields, the cost as a number, reasoning tokens kept beside the
 /// usage, a reasoning block as its own event, and a tool with no recorded origin as `other`); a
 /// child session (`info.parentID`) is never a root, its id its parent's, `/`, its own; a document
-/// that is not an export is refused, and one that names no outcome ends `unknown`.
+/// that is not an export is refused, and one that names no outcome ends `unknown`; exit (a
+/// completed `shell` call carries the code of `state.metadata.exit`; an error state, a call with
+/// no `metadata.exit` such as the timeout, and a tool that is not `shell` carry none).
 /// Oracle: `completed_o1/export.json`, read by hand: two assistant messages of 100/20 tokens, one
 /// `shell` call that completed, `info.tokens` 300/60; `interrupt_api/export.json` (`state.status`
 /// is `error`, outcome `interrupted`) and `unknown_model_local/export.json` (no assistant message,
 /// `idle.error`), read by hand; a document written by hand in the recorded shape, with the numbers
 /// `opencode_facts` reports for the real-model run (cost 0.00054, 4704 cached tokens); the schema's
-/// rule that a child's id is its parent's id, `/`, a call id; hand-written documents.
+/// rule that a child's id is its parent's id, `/`, a call id; hand-written documents; for the
+/// exit, `jq` over the named exports reading `state.status`, `state.metadata.exit` and
+/// `state.error`, and a hand-written document whose non-`shell` `read` tool holds `exit: 7`.
+/// Bite: no `shell` gate, so the `read` tool with exit 7 carries 7; a missing exit taken as 0, so
+/// the timeout row reads 0; the exit read only on error states, so `completed_o1` fails.
 #[test]
 fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() -> Res<()> {
     let (events, sessions) = read_export(&stream_file("completed_o1", "export.json")?)?;
@@ -762,7 +768,7 @@ fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() ->
             json!({"kind": "tool_call", "name": "shell", "origin": {"kind": "builtin"},
                    "argv": ["echo hello-from-tool > /work/o1.txt && cat /work/o1.txt"],
                    "wrapped_calls": []}),
-            json!({"kind": "tool_result", "is_error": false}),
+            json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 0}}),
             usage("message", 100, 20),
             json!({"kind": "assistant_message", "text": "done: the tool finished."}),
             usage("message", 100, 20),
@@ -799,6 +805,75 @@ fn opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions() ->
         results,
         vec![json!({"kind": "tool_result", "is_error": true})]
     );
+
+    // Exit: a `shell` call that completed carries the code in `state.metadata.exit`; a call whose
+    // state is an error, or that reported none (the timed-out call is `completed` with a signal
+    // name and no code), carries none. Expected values come from
+    // `jq -c '[.messages[].content[]? | select(.type == "tool") | .state.metadata.exit]'`.
+    let exit_rows: [(&str, Vec<Value>); 5] = [
+        (
+            "shell_exit_stderr_timeout",
+            vec![
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 3}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 2}}),
+                json!({"kind": "tool_result", "is_error": false}),
+            ],
+        ),
+        (
+            // `jq -c '[.. | objects | select(.type? == "tool") | [.name, .state.metadata.exit]]'` gives
+            // shell 1, 1, 1, 0 and parity_stamp null;
+            // the fifth result is the MCP `stamp` call.
+            "shell_exit_semantics",
+            vec![
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 1}}),
+                json!({"kind": "tool_result", "is_error": false, "exit": {"kind": "code", "code": 0}}),
+                json!({"kind": "tool_result", "is_error": false}),
+            ],
+        ),
+        (
+            "sigint_mid_tool",
+            vec![json!({"kind": "tool_result", "is_error": true})],
+        ),
+        (
+            "oc_permission_ask",
+            vec![json!({"kind": "tool_result", "is_error": true})],
+        ),
+        (
+            "interrupt_api",
+            vec![json!({"kind": "tool_result", "is_error": true})],
+        ),
+    ];
+    for (fixture, expected) in exit_rows {
+        let (events, _) = read_export(&stream_file(fixture, "export.json")?)?;
+        let results: Vec<Value> = kinds(&events)?
+            .into_iter()
+            .filter(|k| k["kind"] == "tool_result")
+            .collect();
+        assert_eq!(results, expected, "{fixture}");
+    }
+    // A tool that is not `shell` carries no exit even when its state holds one.
+    let other_tool = json!({
+        "info": {"id": "ses_x", "outcome": "succeeded"},
+        "messages": [
+            {"id": "m1", "type": "user", "text": "go"},
+            {"id": "m2", "type": "assistant", "finish": "stop", "content": [
+                {"type": "tool", "id": "chatcmpl-tool-x", "name": "read",
+                 "state": {"status": "completed", "input": {}, "metadata": {"exit": 7}}}
+            ]}
+        ]
+    });
+    let (events, _) = read_export(&serde_json::to_vec(&other_tool)?)?;
+    let results: Vec<Value> = kinds(&events)?
+        .into_iter()
+        .filter(|k| k["kind"] == "tool_result")
+        .collect();
+    assert_eq!(
+        results,
+        vec![json!({"kind": "tool_result", "is_error": false})]
+    );
+
     let (events, sessions) = read_export(&stream_file("unknown_model_local", "export.json")?)?;
     let labels: Vec<String> = kinds(&events)?
         .iter()

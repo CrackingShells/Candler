@@ -151,10 +151,10 @@
     },
     "Needs": {
       "additionalProperties": false,
-      "description": "What one kind of check needs from a run, written as an object whose five lists are all present, empty when the kind needs nothing of that sort.",
+      "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A request is served the union of the needs of the kinds it sends, and a part the run does not store refuses the request.",
       "properties": {
         "artifacts": {
-          "description": "Globs, relative to the run, of the artifacts the check reads.",
+          "description": "Globs, relative to the run, of the artifacts the check reads; each starts with `outputs/`. The artifacts are the files the run produced, each served at its path inside `outputs/`.",
           "items": {
             "type": "string"
           },
@@ -167,12 +167,22 @@
           },
           "type": "array"
         },
+        "manifest": {
+          "default": false,
+          "description": "Whether the check reads the run's manifest, served as `context.manifest` when a kind of the request needs it. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.",
+          "type": "boolean"
+        },
         "metadata": {
           "description": "The paths of the metadata fields the check reads.",
           "items": {
             "$ref": "#/$defs/FieldPath"
           },
           "type": "array"
+        },
+        "raw": {
+          "default": false,
+          "description": "Whether the check reads the raw streams, served as `context.raw` when a kind of the request needs it. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep, each stored as gzip-compressed JSON lines (`.jsonl.gz`).",
+          "type": "boolean"
         },
         "snapshots": {
           "description": "The kinds of snapshot the check reads. Always empty for a run Candler made; the field is\nkept so a released helper and stored grading contexts stay valid, and it is removed once a\nhelper that treats it as optional is released.",
@@ -182,7 +192,7 @@
           "type": "array"
         },
         "trace": {
-          "description": "Whether the check reads the normalised trace.",
+          "description": "Whether the check reads the normalised trace, served as `context.trace` when a kind of the request needs it. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. It holds its header alone when the reader failed or the session was silent. Declaring it hands the kind the run's system text and first message verbatim (`context_start`), which may be the treatment under test.",
           "type": "boolean"
         }
       },

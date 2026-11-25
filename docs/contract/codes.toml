@@ -1064,6 +1064,11 @@ side = "plugin"
 enum = "ContextError"
 variant = "InputRefused"
 
+[evaluation."evaluation.run_part_missing"]
+side = "plugin"
+enum = "ContextError"
+variant = "PartMissing"
+
 [evaluation."evaluation.metadata_missing"]
 side = "plugin"
 enum = "ContextError"
@@ -1879,6 +1884,11 @@ at = "-"
 [helper."helper.deadline_out_of_range"]
 side = "suite"
 when = "A suite entry has a deadline_ms above 2**53 - 1, which Candler passes on and the helper refuses with error -32602."
+at = "-"
+
+[helper."helper.trace_out_of_order"]
+side = "plugin"
+when = "A trace file read by a kind is empty, has a record before its header, a second header, a session after an event or a session declared twice."
 at = "-"
 
 [resolve."isolation.egress_invalid"]
