@@ -1,0 +1,45 @@
+# M6.5 Agent configuration as data
+
+## Context
+A new root after M6c Integrity (#81, on `origin/main` at `8d82f63b`). It is independent of M7, which is blocked, and of M8, which lies below M7; M8's plugin may later use hooks. The plan is [the architecture report](../../__reports__/agent_config/00-architecture_agent_config_v0.md). Every leaf runs by its §Execution model: Sonnet implementers and verifiers, a shared codebase whose debt the leaf owns, findings kept in scope or escalated, target-dir slots `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and a $75 cap. The status is mirrored in macOS Reminders.
+
+## Goal
+A consumer gives each arm its own instruction text and hooks as cell values. Candler installs them where each harness looks, and refuses a cell that the harness's own check rejects.
+
+## Pre-conditions
+- [x] `[cmd]` `git merge-base --is-ancestor 80405b5c origin/main` succeeds (M6c merged)
+- [x] `[nl]` Eliott approved the plan on 2026-11-25: refuse errors and warnings, take contents inline, and make this a new root
+
+## Success Gates
+- ⬜ G1–G9 of the [architecture report](../../__reports__/agent_config/00-architecture_agent_config_v0.md) hold on the tip of `feat/m6.5-agent-config`, each one seen failing on `8d82f63b`
+- ⬜ `probe_harness_checks.md`, `declaration.md` and `installed/` are `done`
+- ⬜ The spend measured from transcripts, coordinator included, is at most $75
+- ⬜ Every finding left out of scope is filed under `__reports__/agent_config/` and escalated
+
+## Status
+```mermaid
+graph TD
+    probe_harness_checks[Probe harness checks]:::planned
+    declaration[Declaration]:::planned
+    installed[Installed]:::planned
+    classDef done       fill:#166534,color:#bbf7d0
+    classDef inprogress fill:#854d0e,color:#fef08a
+    classDef planned    fill:#374151,color:#e5e7eb
+    classDef amendment  fill:#1e3a5f,color:#bfdbfe
+    classDef blocked    fill:#7f1d1d,color:#fecaca
+```
+
+## Nodes
+| Node | Type | Status |
+|:-----|:-----|:-------|
+| `probe_harness_checks.md` | 📄 Leaf Task | ⬜ Planned |
+| `declaration.md` | 📄 Leaf Task | ⬜ Planned |
+| `installed/` | 📁 Directory | ⬜ Planned |
+
+## Amendment Log
+| ID | Date | Source | Nodes Added | Rationale |
+|:---|:-----|:-------|:------------|:----------|
+
+## Progress
+| Node | Branch | Commits | Notes |
+|:-----|:-------|:--------|:------|
