@@ -20,7 +20,7 @@
 On the `parity_e2e.rs` rig, script the fake model to make three `shell`/`Bash` calls in one turn: `exit 3`; `echo oops >&2; exit 2`; and a call that outlives the harness's own shell timeout (set the shortest timeout the harness allows through its configuration, as the rig already configures each harness). Run it once on each harness. Copy the raw stream (Claude Code `stream-json`; OpenCode `stdout.jsonl` and `export.json`) into a fixture directory per harness, named for what it shows, and write each `PROVENANCE.toml` entry. Answer the three questions in the report from those lines only.
 **Deliverables**: two fixture directories and their provenance entries; the probe's scratch test (deleted in Step 2)
 **Consistency Checks**: `ls` of both fixture directories shows the stream files (expected: PASS)
-**Commit**: `test(harness): record each harness's failing and timed-out shell call`
+**Commit**: `test(trace-model): record each harness's failing and timed-out shell call`
 
 ## Step 2: Delete the probe, report
 **Goal**: Only the answer and the fixtures stay.
@@ -28,4 +28,4 @@ On the `parity_e2e.rs` rig, script the fake model to make three `shell`/`Bash` c
 Remove the scratch test and anything it added to the rig. Remove the images and containers the runs built, by id. Write the report: each question, the line that answers it, the rule it implies for `readers/cc_reader_exit.md` and `readers/oc_reader_exit.md`. A fresh Sonnet verifier gets the leaf, the report and the fixtures and checks each quoted line against the fixture file.
 **Deliverables**: `__reports__/run-context/leaves/probe_shell_shapes_v0.md`
 **Consistency Checks**: `git diff feat/run-context --stat -- crates/candler/tests` prints nothing (expected: PASS)
-**Commit**: `reports(harness): answer how each harness reports a failing shell call`
+**Commit**: `reports(trace-model): answer how each harness reports a failing shell call`
