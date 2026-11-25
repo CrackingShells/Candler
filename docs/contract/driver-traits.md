@@ -32,7 +32,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::check_settings` | `(&self, cell: &Cell<'_>) -> Result<(), DriverError>` | optional | `Ok(())` |
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
-| `HarnessDriver::census_stream` | `(&self) -> Option<StreamName>` | optional | `None` |
+| `HarnessDriver::census_from_gateway` | `(&self) -> bool` | optional | `false` |
 | `HarnessDriver::loaded_instructions` | `(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile>` | optional | `Vec::new()` |
 | `HarnessDriver::skills` | `(&self) -> SkillTree` | required | - |
 | `HarnessDriver::base_image` | `(&self) -> BaseImage` | required | - |
@@ -78,5 +78,5 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 
 - Drivers never act on a process: they return commands, specs and readers, and the core runs them. [checked: v@0.7.0]
 - A reader is synchronous and holds no clock; the core supplies each frame's place and wall time. [checked: v@0.7.0]
-- `census_stream()` names the raw stream the gateway's census is stored under; the core reads the gateway census itself and reports it as the inventory. [checked: v@0.7.0]
+- `census_from_gateway()` says the census is the tool names the gateway saw in the model requests; the core reads them itself and reports them as the inventory. [checked: v@0.16.0]
 - A driver that does not refuse `AgentSetting::SessionMode` also gives its `plan` a `session` and returns a `session_tracker`. [checked: v@0.7.0]

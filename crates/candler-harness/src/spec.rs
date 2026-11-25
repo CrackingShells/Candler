@@ -959,6 +959,53 @@ impl Observed {
 /// model request and the run's starting context.
 pub const GATEWAY_STREAM: &str = "gateway_census";
 
+/// The starting context of a request, as a context line of [`GATEWAY_STREAM`] holds it: the system
+/// text and the first message.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct StartContext {
+    /// The system text of the request.
+    pub system: String,
+    /// The first message of the request.
+    pub first_message: String,
+}
+
+/// One line of [`GATEWAY_STREAM`]: the tool names of a model request, or the starting context of
+/// one. `seq` is the request's sequence number at the gateway.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum GatewayRecord {
+    /// The starting context of a request.
+    Context {
+        /// The request's sequence number.
+        seq: u64,
+        /// What the request started from.
+        context: StartContext,
+    },
+    /// The tool names of a request.
+    Tools {
+        /// The request's sequence number.
+        seq: u64,
+        /// The tools the request offered.
+        tools: Vec<String>,
+    },
+}
+
+/// The lines of a [`GATEWAY_STREAM`] that read as a record, each with its index among all the
+/// lines of the stream; any other line is skipped.
+pub fn gateway_records(stream: &[u8]) -> impl Iterator<Item = (usize, GatewayRecord)> {
+    stream
+        .split(|byte| *byte == b'\n')
+        .enumerate()
+        .filter_map(|(frame, line)| {
+            serde_json::from_slice::<GatewayRecord>(line)
+                .ok()
+                .map(|record| (frame, record))
+        })
+}
+
 /// Where an inventory of tools came from. Two inventories from different sources are never the
 /// same observation, and neither equals an unrecorded one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

@@ -19,9 +19,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError,
-    DriverFact, EnvEntry, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd, PendingItem,
-    PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec,
-    SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    DriverFact, EnvEntry, GATEWAY_STREAM, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd,
+    PendingItem, PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose,
+    SessionSpec, SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -246,7 +246,7 @@ fn open_cases() -> Result<Vec<Case>, TestError> {
     let ses = |text: &str| sid(text);
     let stdout = name("stdout")?;
     let export = name("export")?;
-    let record = name("model_requests")?;
+    let record = name(GATEWAY_STREAM)?;
     let tools = InitReport::new(
         json!([
             "edit",
@@ -448,7 +448,7 @@ struct Patched {
     wordless: Option<AgentSetting>,
     stop: Option<StopSpec>,
     extra_arg: Option<String>,
-    census_stream_removed: bool,
+    census_from_gateway_removed: bool,
     eager_census: bool,
     session: Option<SessionSpec>,
     extra_file: Option<PreparedFile>,
@@ -466,7 +466,7 @@ impl Patched {
             wordless: None,
             stop: None,
             extra_arg: None,
-            census_stream_removed: false,
+            census_from_gateway_removed: false,
             eager_census: false,
             session: None,
             extra_file: None,
@@ -588,12 +588,8 @@ impl HarnessDriver for Patched {
             .clone() // BORROW: .clone() copies the override
             .unwrap_or_else(|| self.inner.state_paths())
     }
-    fn census_stream(&self) -> Option<StreamName> {
-        if self.census_stream_removed {
-            None
-        } else {
-            self.inner.census_stream()
-        }
+    fn census_from_gateway(&self) -> bool {
+        !self.census_from_gateway_removed && self.inner.census_from_gateway()
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let mut plan = self.inner.plan(cell, workspace)?;
@@ -623,7 +619,7 @@ impl HarnessDriver for Patched {
         servers: &[String],
     ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
-        if self.eager_census && stream.as_str() == "model_requests" {
+        if self.eager_census && stream.as_str() == GATEWAY_STREAM {
             return Some(Box::new(EagerCensus)); // TRAIT_OBJECT: the trait returns readers as objects
         }
         self.inner.offline_reader(stream, servers)
@@ -831,12 +827,12 @@ impl HarnessDriver for Keeps {
 
 /// Guards: R01 §Harness drivers, §Agent environment and secrets, §`OpenCode` v2, §Session runner —
 /// the checks that refuse a broken driver, each its own section below: a session capability
-/// without a session spec; a census capability with neither a census stream nor an init report;
+/// without a session spec; a census capability with neither a gateway census nor an init report;
 /// a census record with no request read as an empty inventory (unrecorded, never an empty set);
 /// execution outside the child with no pre-stop; a secret in the argument vector, or a variable
 /// the core owns; a driver that names no gateway variables; a config naming an undeclared
 /// variable; a host collect for a driver with per-run state; two state paths that are one path,
-/// or a file that is another's parent; a census stream with no reader; a stop script that matches
+/// or a file that is another's parent; a gateway census with no reader; a stop script that matches
 /// itself (`pgrep`/`pkill` with the full-command-line option, in any cluster); `Action::resolve`
 /// falling back for an unknown or refused id; an inventory from a source that saw no tool; two state
 /// paths sharing a variable or named like a gateway variable or not a variable at all; gateway names
@@ -877,9 +873,9 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
         "{message}"
     );
 
-    // A census capability with neither a census stream nor an init report is refused.
+    // A census capability with neither a gateway census nor an init report is refused.
     let mut broken = Patched::new();
-    broken.census_stream_removed = true;
+    broken.census_from_gateway_removed = true;
     // Only the cases that expect no inventory remain, so no init report backs the capability.
     let no_inventory_cases: Vec<Case> = open_cases()?
         .into_iter()
@@ -888,7 +884,7 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     assert!(!no_inventory_cases.is_empty());
     let message = refusal(&broken, &no_inventory_cases)?;
     assert!(
-        message.contains("neither a census stream nor an init report"),
+        message.contains("neither a gateway census nor an init report"),
         "{message}"
     );
 
@@ -1370,8 +1366,8 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn state_paths(&self) -> Vec<StatePath> {
             self.0.state_paths()
         }
-        fn census_stream(&self) -> Option<StreamName> {
-            self.0.census_stream()
+        fn census_from_gateway(&self) -> bool {
+            self.0.census_from_gateway()
         }
         fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
             let plan = self.0.plan(cell, workspace)?;

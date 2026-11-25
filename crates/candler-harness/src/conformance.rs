@@ -16,8 +16,8 @@ use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, AgentSetting, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvValue,
-    Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
-    ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
+    Framing, GATEWAY_STREAM, HttpMethod, InitReport, Observed, ObservedEnd, PendingState,
+    PreparedFile, ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
 };
 
 /// A session id plain enough to stand in a script, used to check that a placeholder resolves.
@@ -750,12 +750,12 @@ fn check_capabilities(
         }
     }
     if !driver.fact(DriverFact::Census).is_refused() {
-        let from_stream = driver.census_stream().is_some();
+        let from_stream = driver.census_from_gateway();
         let from_init = cases.iter().any(|case| case.init.is_some());
         if !from_stream && !from_init {
             return Err(driver_failure(
                 "census",
-                "the census capability is declared and the driver has neither a census stream nor an init report".to_owned(), // BORROW: .to_owned() makes the owned text
+                "the census capability is declared and the driver has neither a gateway census nor an init report".to_owned(), // BORROW: .to_owned() makes the owned text
             ));
         }
     } else if let Some(case) = cases.iter().find(|case| case.init.is_some()) {
@@ -918,12 +918,13 @@ fn check_census_source(
     let Some(init) = &case.init else {
         return Ok(());
     };
-    let stream = driver.census_stream();
+    let from_gateway = driver.census_from_gateway();
     let offline_stream = match &case.reader {
         ReaderSource::Offline(name) => Some(name),
         ReaderSource::Live => None,
     };
-    let from_stream = stream.is_some() && stream.as_ref() == offline_stream;
+    let from_stream =
+        from_gateway && offline_stream.is_some_and(|name| name.as_str() == GATEWAY_STREAM); // BORROW: explicit .as_str()
     let labelled_ok = if from_stream {
         matches!(init.source, CensusSource::Gateway | CensusSource::Collected)
     } else {
@@ -944,12 +945,11 @@ fn check_census_source(
             ),
         ));
     }
-    if init.source == CensusSource::Harness && stream.is_some() && case.reader == ReaderSource::Live
-    {
+    if init.source == CensusSource::Harness && from_gateway && case.reader == ReaderSource::Live {
         return Err(case_failure(
             case,
             "census",
-            "the driver names a census stream, so a live reader's inventory is not its census"
+            "the driver takes its census from the gateway, so a live reader's inventory is not its census"
                 .to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }

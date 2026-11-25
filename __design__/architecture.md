@@ -715,8 +715,8 @@ implements only what its harness has.
     driver. No default names exist: a driver that names none is refused at run time
   - `state_paths() -> StatePath { env, kind: Dir | File, subpath }[]`: the places the harness
     keeps state under the agent's home. The core makes each per run and sets its variable
-  - `census_stream() -> Option<StreamName>`: the raw stream the gateway's census is stored under,
-    for a harness with no init event. The core reads the gateway census itself
+  - `census_from_gateway() -> bool`: the harness has no init event, so the core reads the census
+    from the gateway's record of the first request
   - `session(cell, workspace) -> Option<SessionSpec { command, input, close, hooks }>` and
     `session_tracker() -> Option<Box<dyn SessionTracker>>`
   - `stop() -> StopSpec { pre_stop: Option<Action>, signal, grace }`, with
@@ -860,7 +860,7 @@ version and by the sha256 of the release archive of each architecture.
   `<server>_<tool>`), the deny rows last. A name with no OpenCode action is refused.
 - **Census.** No event, command or export lists OpenCode's tools. The tool names in the request the
   agent sends to the model are the inventory, so the gateway sidecar records the names of each
-  request, and the core takes the first request that carries tools (`census_stream`,
+  request, and the core takes the first request that carries tools (`census_from_gateway`,
   `census.source = gateway`). A run whose requests carry no tools records no inventory. The verdict never takes a
   gateway inventory for a harness's own.
 - **Facts.** `graceful_stop`, `census` and `execution_outside_child`. Not `SessionMode`.

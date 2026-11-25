@@ -12,8 +12,9 @@ use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
-    DriverFact, GATEWAY_STREAM, GatewayEnv, HarnessId, OPENCODE, Observed, Prepared, ProcessExit,
-    StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    DriverFact, EnvEntry, GATEWAY_STREAM, GatewayEnv, GatewayRecord, HarnessId, LoadedFile,
+    LoadedScope, OPENCODE, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace, gateway_records,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -33,6 +34,9 @@ const GATEWAY_BASE_URL: &str = "CANDLER_GATEWAY_URL";
 /// The variable that holds the gateway's token; the configuration refers to it.
 const GATEWAY_AUTH_TOKEN: &str = "CANDLER_GATEWAY_TOKEN";
 
+/// The agent's home inside the container, which the state paths are relative to.
+const AGENT_HOME: &str = "/home/agent";
+
 /// The state directories and the database file, relative to the agent's home.
 const STATE: [(&str, StateKind, &str); 5] = [
     ("XDG_DATA_HOME", StateKind::Dir, ".xdg/data"),
@@ -41,6 +45,15 @@ const STATE: [(&str, StateKind, &str); 5] = [
     ("XDG_STATE_HOME", StateKind::Dir, ".xdg/state"),
     ("OPENCODE_DB", StateKind::File, ".xdg/data/oc.db"),
 ];
+
+/// The model of the config check: one `OpenCode` cannot select, so the start ends at the model.
+const CHECK_MODEL: &str = "probe/none";
+/// The directory the config check keeps its data home and database in, away from the run's.
+const CHECK_DATA: &str = "/tmp/candler-config-check";
+
+/// The text that opens an instruction file in the system text of a request, at the start of a
+/// line: `Instructions from: <path>`, then the file's text.
+const INSTRUCTIONS_MARKER: &str = "Instructions from: ";
 
 /// How long a stopped run has to exit after the signal: `OpenCode` ended in under 100 ms on TERM.
 const STOP_GRACE: Duration = Duration::from_secs(10);
@@ -63,6 +76,56 @@ fn root_end(sessions: &[Session]) -> Option<&EndedBy> {
         .clone()
         .find(|session| session.source().reader().as_str() == export); // BORROW: explicit .as_str()
     exported.or_else(|| roots.next()).map(Session::ended_by)
+}
+
+/// The instruction files the starting context of the first request that offers tools names, in the
+/// order the system text holds them, each once, as `OpenCode` printed their paths. `bytes` is the
+/// stream `stream`; any other stream lists nothing. A file under the `XDG_CONFIG_HOME` the plan sets
+/// is the user's own; any other is the workspace's. The census reads `OpenCode`'s `Instructions
+/// from:` lines, which `OpenCode` does not escape, so a line of that shape inside an instruction
+/// text counts too.
+fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+    if stream.as_str() != GATEWAY_STREAM {
+        return Vec::new();
+    }
+    let first = gateway_records(bytes)
+        .filter_map(|(_, record)| {
+            let GatewayRecord::Context { seq, context } = record else {
+                return None;
+            };
+            Some((seq, context))
+        })
+        .min_by_key(|(seq, _)| *seq);
+    let Some((_, context)) = first else {
+        return Vec::new();
+    };
+    let own = format!(
+        "{AGENT_HOME}/{}/",
+        OpenCodeDriver::state_subpath("XDG_CONFIG_HOME")
+    );
+    let mut files: Vec<LoadedFile> = Vec::new();
+    for path in context
+        .system
+        .lines()
+        .filter_map(|line| line.strip_prefix(INSTRUCTIONS_MARKER))
+    {
+        let scope = if path.starts_with(own.as_str()) {
+            LoadedScope::User
+        } else {
+            LoadedScope::Project
+        };
+        let file = LoadedFile::new(path.to_owned(), scope); // BORROW: .to_owned() gives the file its own path
+        if !path.is_empty() && !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    files
+}
+
+/// The line that marks a check start that reached the model: the session drain failing on the model
+/// that does not exist.
+fn is_drain(line: &str) -> bool {
+    line.contains("Failed to drain Session") && line.contains("ModelUnavailableError")
 }
 
 /// The `OpenCode` V2 driver.
@@ -176,8 +239,8 @@ impl HarnessDriver for OpenCodeDriver {
             DriverFact::Census => Answer::Candler {
                 how: "the tools the gateway offered the model in its first request",
             },
-            DriverFact::ConfigCheck => Answer::Refused {
-                reason: "this driver installs no configuration file to check",
+            DriverFact::ConfigCheck => Answer::Mapped {
+                construct: "`opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` and `level=ERROR` lines name a rejected `opencode.json` or a plugin that failed to load",
             },
             DriverFact::UnsetPermissionMode => Answer::Candler {
                 how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
@@ -187,12 +250,60 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
         let _ = plan;
-        None
+        // A model that does not exist ends the start at the model, after the configuration and
+        // the plugins have loaded, so no request leaves. The start keeps the plan's configuration
+        // home and writes its database and data under a throwaway directory, not the run's.
+        let argv = argv(&[
+            PROGRAM,
+            "run",
+            "--standalone",
+            "--print-logs",
+            "-m",
+            CHECK_MODEL,
+            "x",
+        ]);
+        CommandSpec::builder()
+            .argv(argv)
+            // BORROW: .to_owned() makes the owned names and values
+            .env(EnvEntry::literal(
+                "XDG_DATA_HOME".to_owned(),
+                CHECK_DATA.to_owned(),
+            ))
+            .env(EnvEntry::literal(
+                "OPENCODE_DB".to_owned(),
+                format!("{CHECK_DATA}/oc.db"),
+            ))
+            .build()
+            .ok()
     }
 
     fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
-        let _ = output;
-        CheckVerdict::Clean
+        let text = String::from_utf8_lossy(output);
+        // The exit status is 1 whatever the start found. Output is a report only when it holds the
+        // line that says the start reached the model; without it the check never got that far
+        // (empty output, an error, a changed format), and never passes.
+        let reached_model = text.lines().any(is_drain);
+        if !reached_model {
+            return CheckVerdict::Rejected {
+                output: text.into_owned(),
+            };
+        }
+        let findings: Vec<&str> = text
+            .lines()
+            .filter(|line| {
+                line.contains("level=WARN") || (line.contains("level=ERROR") && !is_drain(line))
+            })
+            .collect();
+        if findings.is_empty() {
+            return CheckVerdict::Clean;
+        }
+        CheckVerdict::Rejected {
+            output: findings.join("\n"),
+        }
+    }
+
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        loaded(stream, bytes)
     }
 
     fn workspace_instruction_file(&self) -> &'static str {
@@ -222,6 +333,7 @@ impl HarnessDriver for OpenCodeDriver {
 
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
         prepare::settings(cell)?;
+        prepare::check_agent_config(cell)?;
         let names: Vec<String> = candler_harness::mcp::servers(cell)?
             .map(|servers| servers.into_keys().collect())
             .unwrap_or_default();
@@ -231,28 +343,34 @@ impl HarnessDriver for OpenCodeDriver {
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
         let settings = prepare::settings(cell)?;
+        let config_dir = Self::state_subpath("XDG_CONFIG_HOME");
         let model = model_id(cell)?;
         let model_arg = match &settings.variant {
             Some((id, _)) => format!("{}/{model}#{id}", prepare::PROVIDER),
             None => format!("{}/{model}", prepare::PROVIDER),
         };
-        let file = prepare::render_config(
+        let mut files = vec![prepare::render_config(
             cell,
             settings,
-            Self::state_subpath("XDG_CONFIG_HOME"),
+            config_dir,
             GATEWAY_BASE_URL,
             GATEWAY_AUTH_TOKEN,
-        )?;
+        )?];
+        let (global, workspace_file) = prepare::render_instructions(cell, config_dir)?;
+        files.extend(global);
+        files.extend(prepare::render_plugins(cell, config_dir)?);
         let mut line = argv(&[PROGRAM, "run", "--standalone", "--format", "json"]);
         line.push("--auto".to_owned()); // BORROW: .to_owned() makes the owned argument
         line.push("-m".to_owned()); // BORROW: .to_owned() makes the owned argument
         line.push(model_arg);
         line.push("--".to_owned()); // BORROW: .to_owned() makes the owned argument
         line.push(cell.prompt()?);
-        Ok(Plan::new(
-            Prepared::new(vec![file], Vec::new()),
+        let mut plan = Plan::new(
+            Prepared::new(files, Vec::new()),
             CommandSpec::builder().argv(line).build()?,
-        ))
+        );
+        plan.workspace_files.extend(workspace_file);
+        Ok(plan)
     }
 
     fn stop(&self) -> StopSpec {
@@ -270,8 +388,8 @@ impl HarnessDriver for OpenCodeDriver {
         Some(Box::new(OpenCodeLiveReader::new())) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        GATEWAY_STREAM.parse().ok()
+    fn census_from_gateway(&self) -> bool {
+        true
     }
 
     fn offline_reader(

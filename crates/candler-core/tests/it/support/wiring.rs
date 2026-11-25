@@ -26,7 +26,8 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, EnvEntry, GatewayEnv,
-    HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec, Workspace,
+    HarnessId, LoadedFile, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec,
+    Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::EventPayload;
@@ -195,8 +196,12 @@ impl HarnessDriver for WiringDriver {
         self.0.state_paths()
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        self.0.census_stream()
+    fn census_from_gateway(&self) -> bool {
+        self.0.census_from_gateway()
+    }
+
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        self.0.loaded_instructions(stream, bytes)
     }
 
     fn stop(&self) -> StopSpec {
