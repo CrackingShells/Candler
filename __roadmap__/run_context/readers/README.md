@@ -19,7 +19,7 @@ graph TD
     cc_reader_exit[Claude Code exit]:::done
     oc_reader_exit[OpenCode exit]:::done
     serve_context[Serve the run]:::done
-    helper_context[Helper context]:::inprogress
+    helper_context[Helper context]:::done
     e2e[Consumer path]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -34,7 +34,7 @@ graph TD
 | `cc_reader_exit.md` | 📄 Leaf Task | ✅ Done |
 | `oc_reader_exit.md` | 📄 Leaf Task | ✅ Done |
 | `serve_context.md` | 📄 Leaf Task | ✅ Done |
-| `helper_context.md` | 📄 Leaf Task | 🔄 In Progress |
+| `helper_context.md` | 📄 Leaf Task | ✅ Done |
 | `e2e/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
