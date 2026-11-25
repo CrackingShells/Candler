@@ -95,3 +95,22 @@ recorded stream. The literal stream is the only place the two differ.
   `guard_supervise::a_pre_stop_command_leaves_nothing_in_its_group` and `guard_wiring::wiring_stop_execs_in_the_container_with_the_observed_id`
   failed under full load and pass alone (0.9 s and 97 s). `fmt --check`, `clippy -D warnings` and `doc -D warnings` pass.
 - Gate 4 lists what `parse.rs` reads; the code also reads `interrupted` and the denial meta, as Step 2's text requires.
+
+## Review round
+
+- **Unjoined result kept its exit.** `SpanId` refuses an empty id, `#` and white space, so a raw line can carry
+  `"tool_use_id":"no span"`; `span_of` then gives no span and the result kept `exit_of`'s code 0. `Registry::emit` now clears
+  the exit of a result with no span too. A literal row (a non-error result with id `no span`, `check_spanless_results`) was
+  red on the code before the fix: `Error: "shared call id: a result joined to no call has exit Some(Code { code: 0 })"`.
+- **One shell name.** `SHELL_TOOL` (`parse.rs`) is used by the argv rule and by the gate in `sessions.rs`.
+- **Only what the gate needs.** `names: HashMap<(usize, String), String>` became `shell: HashSet<(usize, String)>`, filled by
+  `Bash` calls only; each remaining clone keeps its `// BORROW:` note.
+- **Both join orders.** The shared-id stream has `X` (root `Read` result first) and `Y` (child `Bash` result first, root `Read`
+  result after it). `Y` already passed on the code before the fix.
+- **Docs.** `emit` and `exit_of` say what they do (no construction detail; non-error result with no flag reads as exit 0);
+  the empty-digits case is explicit.
+- **Tests.** `ExitRow` holds `&str`, no `// BORROW: owned text` on literals; `check_exits` returns `Err` for every failure.
+- **Bite (c) again**, on `scratch/bites` (deleted), set keyed by call id only: `Error: "shared call id: exit of the result of
+  Read call X in S is [Some(0)], want None"`.
+- Checks: `fmt --check`, `clippy -p ... --all-targets -D warnings`, `nextest run -p ...` (21 of 21), `doc -D warnings`, and
+  `git grep -n confirm_ -- crates python` (empty) pass.
