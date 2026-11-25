@@ -231,7 +231,7 @@ fn kinds_that_declare_the_run_parts_are_served_their_stored_bytes() {
     );
 }
 
-/// Guards: R9 — the digest of a materialised live context equals the independent vector of the run's raw `outputs/` files and `experiment.json`, and a twin whose `domain.py` differs by one byte has the vector of the twin, which is not the original's. and a context that also serves the trace, the raw streams or the manifest has the vector of its `[[served]]` row, whose recorded hashes equal the hashes of the files the store holds. Oracle: `live_context_runs.toml`, written by `gen_live_context.py` with python `rfc8785` from the raw corpus and the stored files' hashes.
+/// Guards: R9 — the digest of a materialised live context equals the independent vector of the run's raw `outputs/` files and `experiment.json`, and a twin whose `domain.py` differs by one byte has the vector of the twin, which is not the original's, and a context that also serves the trace, the raw streams or the manifest has the vector of its `[[served]]` row, whose recorded hashes equal the hashes of the files the store holds. Oracle: `live_context_runs.toml`, written by `gen_live_context.py` with python `rfc8785` from the raw corpus and the stored files' hashes.
 #[test]
 fn the_live_context_digest_is_the_independent_vector() {
     let vectors = live_vectors();
@@ -300,7 +300,16 @@ fn the_live_context_digest_is_the_independent_vector() {
 
     let vectors = toml::Value::Table(vectors);
     let served = tables_at(&vectors, "served");
-    assert_eq!(served.len(), 3, "vector rows that serve parts");
+    let mut declared: Vec<&str> = Vec::new();
+    for vector in served {
+        declared.extend(tables_at_str(vector, "needs"));
+    }
+    for part in ["trace", "raw", "manifest"] {
+        assert!(
+            declared.contains(&part),
+            "the vector rows serve the {part} in some row"
+        );
+    }
     for vector in served {
         let run = text_at(vector, "run");
         let parts: Vec<&str> = tables_at_str(vector, "needs");
@@ -435,7 +444,7 @@ fn a_plug_in_cannot_write_through_to_the_store() {
     }
 }
 
-/// Guards: R9 — the digest of a materialised context is taken from the bytes written to the workspace, and a store blob that no longer holds the bytes of its recorded sha256 is refused with `CorruptBlob` and no context. Oracle: a blob of the store overwritten here with other bytes, so the recorded sha256 and the written bytes differ.
+/// Guards: R9 — the digest of a materialised context is taken from the bytes written to the workspace, and a store blob that no longer holds the bytes of its recorded sha256, or a stored trace that changed between `assemble` and `materialise`, is refused with `CorruptBlob` naming the stored file, and no context. Oracle: a blob of the store, and the stored trace of another store, each overwritten here with other bytes, so the recorded sha256 and the written bytes differ.
 #[test]
 fn a_corrupt_blob_is_refused_and_not_digested() {
     let (_keep, store) = mini_store(&mini());
@@ -460,8 +469,24 @@ fn a_corrupt_blob_is_refused_and_not_digested() {
     let assembled = assemble(&store, &run, &parity_needs()).expect("the run assembles");
     let outcome = materialise(&assembled, workspace.path());
     assert!(
-        matches!(outcome, Err(ContextError::CorruptBlob { .. })),
-        "a corrupt blob must be refused, got {outcome:?}"
+        matches!(&outcome, Err(ContextError::CorruptBlob { stored, .. }) if *stored == blob),
+        "a corrupt blob must be refused, naming the blob, got {outcome:?}"
+    );
+
+    // A stored file with no blob: the hash taken at assembly is the record, and the file changes
+    // after it.
+    let (_keep, store) = mini_store(&mini());
+    let run = key_of(&store, 6);
+    let workspace = tempfile::tempdir().expect("a workspace");
+    let assembled =
+        assemble(&store, &run, &needs_declaring(&["trace"])).expect("the run assembles");
+    let trace = store.layout().trace(&run);
+    fs::set_permissions(&trace, fs::Permissions::from_mode(0o644)).expect("chmod u+w");
+    fs::write(&trace, b"not the assembled bytes").expect("the trace is overwritten");
+    let outcome = materialise(&assembled, workspace.path());
+    assert!(
+        matches!(&outcome, Err(ContextError::CorruptBlob { stored, .. }) if *stored == trace),
+        "a trace changed after assembly must be refused, naming the trace, got {outcome:?}"
     );
 }
 
@@ -860,7 +885,7 @@ fn needs_inputs_refused_when_the_list_blob_is_not_its_digests_list() {
     );
 }
 
-/// Guards: R01 §Evaluator protocol — a kind that declares the trace, or the raw streams, of a run that stores none of them is refused with the code `evaluation.run_part_missing`, naming the part, and no context is made; the same run serves its manifest. Oracle: hand-written; the parts and the code are the ones written below, and the run is sealed over a manifest alone by the store's own writer.
+/// Guards: R01 §Evaluator protocol — a kind that declares the trace, or the raw streams, of a run that stores none of them is refused with the code `evaluation.run_part_missing`, naming the part and the run, and no context is made; the same run serves its manifest. Oracle: hand-written; the parts and the code are the ones written below, and the run is sealed over a manifest alone by the store's own writer.
 #[test]
 fn needs_parts_refused_when_the_run_cannot_serve_them() {
     let (_keep, store) = mini_store(&mini());
@@ -879,8 +904,9 @@ fn needs_parts_refused_when_the_run_cannot_serve_them() {
             "{part}"
         );
         assert!(
-            error.to_string().contains(&format!("`{part}`")),
-            "`{error}` names the part `{part}`"
+            error.to_string().contains(&format!("`{part}`"))
+                && error.to_string().contains(&bare.to_string()),
+            "`{error}` names the part `{part}` and the run"
         );
     }
     let workspace = tempfile::tempdir().expect("a workspace");
@@ -890,5 +916,10 @@ fn needs_parts_refused_when_the_run_cannot_serve_them() {
         &needs_declaring(&["manifest"]),
         workspace.path(),
     );
-    assert!(context.manifest().is_some(), "the manifest is always held");
+    let manifest = context.manifest().expect("the manifest is always held");
+    assert_eq!(
+        manifest.sha256,
+        sha256_of(&fs::read(store.layout().manifest(&bare)).expect("the stored manifest reads")),
+        "the manifest copy holds the stored manifest's bytes"
+    );
 }
