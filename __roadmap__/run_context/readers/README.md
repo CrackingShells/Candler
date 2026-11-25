@@ -18,7 +18,7 @@ Both trace readers record the harness's exit status, `assemble`/`materialise` se
 graph TD
     cc_reader_exit[Claude Code exit]:::done
     oc_reader_exit[OpenCode exit]:::done
-    serve_context[Serve the run]:::inprogress
+    serve_context[Serve the run]:::done
     helper_context[Helper context]:::inprogress
     e2e[Consumer path]:::planned
     classDef done       fill:#166534,color:#bbf7d0
@@ -33,7 +33,7 @@ graph TD
 |:-----|:-----|:-------|
 | `cc_reader_exit.md` | 📄 Leaf Task | ✅ Done |
 | `oc_reader_exit.md` | 📄 Leaf Task | ✅ Done |
-| `serve_context.md` | 📄 Leaf Task | 🔄 In Progress |
+| `serve_context.md` | 📄 Leaf Task | ✅ Done |
 | `helper_context.md` | 📄 Leaf Task | 🔄 In Progress |
 | `e2e/` | 📁 Directory | ⬜ Planned |
 
