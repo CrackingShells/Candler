@@ -4,12 +4,14 @@
 mod oracle;
 mod support;
 
+mod guard_agent_config;
 mod guard_analysis_report;
 mod guard_analysis_summary;
 mod guard_assert_clean;
 mod guard_build_context;
 mod guard_census_gateway;
 mod guard_comparability;
+mod guard_config_check;
 mod guard_container_e2e;
 mod guard_container_guard;
 mod guard_container_record;
@@ -59,6 +61,7 @@ mod guard_stats_exact;
 mod guard_stats_resampling;
 mod guard_store;
 mod guard_supervise;
+mod guard_trace_context_start;
 mod guard_transcript;
 mod guard_treatment_context;
 mod guard_treatment_source;

@@ -34,7 +34,9 @@ use super::model::{
     ContainerOutcome, ContainerPlan, ContainerRef, ContainerSweep, GatewayHandle, ImageId,
     ImageRef, Inspect, LabelSel, Limits, Refusal, SweepScope, UserSpec,
 };
-use super::{EndFacts, IsolatedRequest, Isolation, IsolationError, RunOutputs, StartProbe};
+use super::{
+    EndFacts, ExecOutput, IsolatedRequest, Isolation, IsolationError, RunOutputs, StartProbe,
+};
 use crate::supervise::hook::{HookError, StopHook};
 use crate::supervise::stop::Exit;
 use candler_schemas::execution::paths;
@@ -537,7 +539,7 @@ impl Isolation for DockerIsolation {
         &'a self,
         plan: &'a ContainerPlan,
         command: &'a CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+    ) -> BoxFuture<'a, Result<ExecOutput, IsolationError>> {
         Box::pin(async move {
             let args = exec::collect_spec(plan, command, COLLECT_WALL)
                 .map(|spec| spec.args())
@@ -545,7 +547,7 @@ impl Isolation for DockerIsolation {
                     detail: source.to_string(),
                 })?;
             self.docker
-                .capture(args, COLLECT_WALL + EXPIRY_MARGIN)
+                .capture_exec(args, COLLECT_WALL + EXPIRY_MARGIN)
                 .await
                 .map_err(|source| IsolationError::Docker {
                     detail: source.to_string(),

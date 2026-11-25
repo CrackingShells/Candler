@@ -18,6 +18,7 @@ pub mod live;
 mod prepare;
 
 use candler_harness::reader::ReaderError;
+use candler_harness::spec::OPENCODE;
 use candler_schemas::primitives::Name;
 use candler_schemas::trace::SessionSource;
 
@@ -49,12 +50,6 @@ macro_rules! export_reader {
 
 export_reader!(0, 2, 0);
 
-/// The stream name under which the gateway's census is stored.
-pub const CENSUS_STREAM: &str = "gateway_census";
-
-/// The name of the harness.
-pub const HARNESS: &str = "opencode";
-
 /// The stream name under which the export is collected.
 pub const EXPORT_STREAM: &str = "export";
 
@@ -84,7 +79,7 @@ pub(crate) fn session_source(
             })
     };
     Ok(SessionSource::new(
-        name(HARNESS)?,
+        name(OPENCODE)?,
         VALIDATED,
         name(reader.name())?,
         reader.version().clone(), // BORROW: .clone() copies the reader version

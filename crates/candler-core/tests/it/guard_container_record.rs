@@ -917,7 +917,7 @@ impl Isolation for Unstartable {
         &'a self,
         plan: &'a ContainerPlan,
         command: &'a CommandSpec,
-    ) -> BoxFuture<'a, Result<Vec<u8>, IsolationError>> {
+    ) -> BoxFuture<'a, Result<candler_core::isolation::ExecOutput, IsolationError>> {
         self.inner.collect_exec(plan, command)
     }
 

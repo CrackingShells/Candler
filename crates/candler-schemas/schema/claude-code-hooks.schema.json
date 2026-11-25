@@ -1,0 +1,25 @@
+{
+  "$id": "urn:candler:schemas:claude-code-hooks",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The hooks a cell gives Claude Code: the `hooks` configuration and the files it runs.\n\nTheir contents are free; Claude Code judges them.",
+  "properties": {
+    "files": {
+      "additionalProperties": false,
+      "description": "The hook files, each at its path under `.claude/hooks/`.",
+      "patternProperties": {
+        "^(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+(?:/(?!\\.\\.?(?:/|(?![\\s\\S])))[^/\\\\\\x00]+)*(?![\\s\\S])": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "settings": {
+      "additionalProperties": true,
+      "description": "The object that goes under the `hooks` key of `.claude/settings.json`, verbatim.",
+      "type": "object"
+    }
+  },
+  "title": "ClaudeCodeHooks",
+  "type": "object"
+}

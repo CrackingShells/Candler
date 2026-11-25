@@ -111,3 +111,45 @@ fn a_cell_from_resolve_is_stored_and_hashed_without_snapshots() {
         "the run is keyed by the digest of the cell as stored"
     );
 }
+
+/// Guards: the run of a cell that sets a workspace instruction text is sealed and shows the
+/// text through `inspect`, and an unset `hooks` shows as an empty member.
+///
+/// Oracle: the text is written by hand on the command line; the run is made by `candler run` and
+/// read back by `candler inspect`.
+///
+/// Bite: drop the `instructions` or `hooks` member from what `inspect` shows (the record has no
+/// such member); let the Claude Code driver refuse `instructions.workspace` (no run is sealed).
+#[test]
+fn a_workspace_instruction_text_reaches_the_record_and_inspect_shows_it() {
+    let world = world();
+    let launched = world.launch_with(&["--set", "instructions.workspace=read the plan"]);
+    finish(&world, &launched);
+    world.assert_sealed(1);
+    let runs = world.store().join("runs");
+    let run_dir = fs::read_dir(&runs)
+        .unwrap()
+        .flatten()
+        .map(|entry| entry.path())
+        .find(|path| path.join("run.done").is_file())
+        .expect("a sealed run");
+    let out = Command::new(env!("CARGO_BIN_EXE_candler"))
+        .arg("inspect")
+        .arg(&run_dir)
+        .current_dir(&world.work)
+        .env_clear()
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "inspect exits 0: {out:?}");
+    let record: Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(
+        record["instructions"],
+        serde_json::json!({"instructions.workspace": "read the plan"}),
+        "the record shows the instructions the run was given: {record}"
+    );
+    assert_eq!(
+        record["hooks"],
+        serde_json::json!({}),
+        "the record shows the hooks the run was given: {record}"
+    );
+}

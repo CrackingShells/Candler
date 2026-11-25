@@ -90,6 +90,25 @@ impl FakeHarness {
 }
 
 impl HarnessDriver for FakeHarness {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -394,7 +413,10 @@ fn harness_env_claude_code_argv_equals_cf3de30() {
     let driver = ClaudeCodeDriver::new();
     let argv = facts::agent_argv(&scene, &driver, &facts::reference_command()).expect("an argv");
     let baseline = recorded("argv.json");
-    assert_eq!(argv, words(&baseline["headless_run"]));
+    // The baseline's command line, then the observers' settings file the driver has added since.
+    let mut expected = words(&baseline["headless_run"]);
+    expected.extend(["--settings", "/home/agent/.candler/settings.json"].map(str::to_owned)); // BORROW: str::to_owned makes the owned words
+    assert_eq!(argv, expected);
 }
 
 /// Guards: R01 §Process supervision — the supervised client attaches to the created container

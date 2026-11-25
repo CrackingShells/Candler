@@ -43,6 +43,8 @@ pub struct ResolvedInputs {
     pub evaluators: Vec<DigestRef>,
     /// The files of every input, in declaration order.
     pub files: Vec<InputFiles>,
+    /// The workspace path of each agent input file with its input's kind, sorted by path.
+    pub targets: Vec<(String, String)>,
 }
 
 /// Why the declared inputs were refused.
@@ -166,6 +168,7 @@ pub fn resolve_input_groups(
     check_targets(declared.as_slice(), &mut targets)?; // BORROW: explicit .as_slice()
     resolved.agent.sort();
     resolved.evaluators.sort();
+    resolved.targets = targets;
     Ok(resolved)
 }
 

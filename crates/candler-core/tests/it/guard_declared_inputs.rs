@@ -542,6 +542,20 @@ fn sha(bytes: &[u8]) -> String {
 struct Collecting(support::job_orchestrate::QuietDriver);
 
 impl HarnessDriver for Collecting {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.0.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.0.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.0.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }

@@ -4,17 +4,20 @@
 
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::mcp;
-use candler_harness::spec::{AgentSetting, Answer, Cell, EffortLevel, PermissionMode};
+use candler_harness::spec::{
+    AgentSetting, Answer, Cell, EffortLevel, InstructionScope, PermissionMode,
+};
 use candler_schemas::execution::paths::{
     BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
-    HARNESS, INPUTS, ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
-    ISOLATION_BUILD_PLUGIN, ISOLATION_BUILD_PRUNE, ISOLATION_BUILD_REQUIREMENTS, ISOLATION_EGRESS,
-    ISOLATION_ENV_LOCK, ISOLATION_IMAGE, ISOLATION_LIMITS, ISOLATION_LIMITS_CPUS,
-    ISOLATION_LIMITS_MEMORY, ISOLATION_LIMITS_PIDS, ISOLATION_NETWORK, ISOLATION_RECORD_PACKAGES,
-    MCP, MODEL_EFFORT, MODEL_ENDPOINT, MODEL_ID, MODEL_TOKEN_SECRET, PERMISSION_MODE, PLUGINS_DIRS,
-    PROMPT_TEMPLATE, PROMPT_VALUES, REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT,
-    RUNNER_IDLE_S, RUNNER_MODE, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT, TOOLS_ALLOWED,
-    TOOLS_DISALLOWED, TREATMENT, TREATMENT_SOURCE_PREFIX,
+    HARNESS, HOOKS, INPUTS, INSTRUCTIONS_GLOBAL, INSTRUCTIONS_WORKSPACE, ISOLATION_BUILD_CONTEXT,
+    ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK, ISOLATION_BUILD_PLUGIN,
+    ISOLATION_BUILD_PRUNE, ISOLATION_BUILD_REQUIREMENTS, ISOLATION_EGRESS, ISOLATION_ENV_LOCK,
+    ISOLATION_IMAGE, ISOLATION_LIMITS, ISOLATION_LIMITS_CPUS, ISOLATION_LIMITS_MEMORY,
+    ISOLATION_LIMITS_PIDS, ISOLATION_NETWORK, ISOLATION_RECORD_PACKAGES, MCP, MODEL_EFFORT,
+    MODEL_ENDPOINT, MODEL_ID, MODEL_TOKEN_SECRET, PERMISSION_MODE, PLUGINS_DIRS, PROMPT_TEMPLATE,
+    PROMPT_VALUES, REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT, RUNNER_IDLE_S, RUNNER_MODE,
+    SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT, TOOLS_ALLOWED, TOOLS_DISALLOWED, TREATMENT,
+    TREATMENT_SOURCE_PREFIX,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::servers::McpServerKind;
@@ -152,7 +155,7 @@ const fn key(path: &'static str, kind: Kind, file: ConfigFile, meaning: &'static
 }
 
 /// Every path the configuration surface names.
-pub const CONFIGURATION_PATHS: [PathRow; 48] = [
+pub const CONFIGURATION_PATHS: [PathRow; 51] = [
     row(
         MODEL_ID,
         Kind::Leaf,
@@ -212,6 +215,27 @@ pub const CONFIGURATION_PATHS: [PathRow; 48] = [
             AgentSetting::McpName,
         ]),
         "The MCP servers of a run; the names below are free.",
+    ),
+    row(
+        INSTRUCTIONS_GLOBAL,
+        Kind::Subtree,
+        Class::Value,
+        Reach::Agent(&[AgentSetting::Instructions(InstructionScope::Global)]),
+        "The global instruction text of each harness: a table of harness id, as registered, to text; the keys are free.",
+    ),
+    row(
+        INSTRUCTIONS_WORKSPACE,
+        Kind::Leaf,
+        Class::Value,
+        Reach::Agent(&[AgentSetting::Instructions(InstructionScope::Workspace)]),
+        "The instruction text at the root of the workspace.",
+    ),
+    row(
+        HOOKS,
+        Kind::Subtree,
+        Class::Value,
+        Reach::Agent(&[AgentSetting::Hooks]),
+        "The hooks of each harness: a table of harness id, as registered, to its `settings` table and `files` table (Claude Code) or its `plugins` table (OpenCode); the keys are free.",
     ),
     row(
         PERMISSION_MODE,
@@ -581,6 +605,8 @@ pub fn settings_set_by(cell: &Cell<'_>) -> Result<Vec<(AgentSetting, FieldPath)>
                 | AgentSetting::ToolsDisallowed
                 | AgentSetting::Env
                 | AgentSetting::Inputs
+                | AgentSetting::Instructions(_)
+                | AgentSetting::Hooks
                 | AgentSetting::WallBudget
                 | AgentSetting::TurnBudget
                 | AgentSetting::CostBudget => found.push(*family),

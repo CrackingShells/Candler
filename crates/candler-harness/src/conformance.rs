@@ -16,8 +16,8 @@ use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, AgentSetting, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvValue,
-    FileRoot, Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
-    ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
+    Framing, GATEWAY_STREAM, HttpMethod, InitReport, Observed, ObservedEnd, PendingState,
+    PreparedFile, ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
 };
 
 /// A session id plain enough to stand in a script, used to check that a placeholder resolves.
@@ -685,6 +685,27 @@ fn check_answers(
     Ok(())
 }
 
+/// Checks that the driver's statement of [`DriverFact::ConfigCheck`] agrees with its
+/// `config_check`: a refused fact has no command and a stated one has a command, so a driver
+/// cannot claim a check that runs nothing.
+fn check_config_check(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    plan: &Plan,
+) -> Result<(), Failure> {
+    let stated = !driver.fact(DriverFact::ConfigCheck).is_refused();
+    match (stated, driver.config_check(plan)) {
+        (false, Some(_)) => Err(driver_failure(
+            "config check",
+            "the fact ConfigCheck is refused and config_check returns a command".to_owned(), // BORROW: .to_owned() makes the owned text
+        )),
+        (true, None) => Err(driver_failure(
+            "config check",
+            "the fact ConfigCheck is stated and config_check returns no command".to_owned(), // BORROW: .to_owned() makes the owned text
+        )),
+        (false, None) | (true, Some(_)) => Ok(()),
+    }
+}
+
 /// Checks the capability rules and the session surface.
 fn check_capabilities(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -727,34 +748,14 @@ fn check_capabilities(
         if let SessionClose::Action(action) = &spec.close {
             check_action("session", action, setup, owned)?;
         }
-        if let Some(hooks) = &spec.hooks {
-            let declared = declared_names(driver);
-            for file in &hooks.files {
-                if file.root != FileRoot::Home {
-                    return Err(driver_failure(
-                        "session",
-                        format!("hook file {} is not rooted at the agent's home", file.path),
-                    ));
-                }
-                check_file_references("session", file, &declared)?;
-                let text = String::from_utf8_lossy(&file.contents);
-                // BORROW: explicit .as_str() instead of Deref coercion
-                if setup.canaries.iter().any(|c| text.contains(c.as_str())) {
-                    return Err(driver_failure(
-                        "session",
-                        format!("a secret value is in hook file {}", file.path),
-                    ));
-                }
-            }
-        }
     }
     if !driver.fact(DriverFact::Census).is_refused() {
-        let from_stream = driver.census_stream().is_some();
+        let from_stream = driver.census_from_gateway();
         let from_init = cases.iter().any(|case| case.init.is_some());
         if !from_stream && !from_init {
             return Err(driver_failure(
                 "census",
-                "the census capability is declared and the driver has neither a census stream nor an init report".to_owned(), // BORROW: .to_owned() makes the owned text
+                "the census capability is declared and the driver has neither a gateway census nor an init report".to_owned(), // BORROW: .to_owned() makes the owned text
             ));
         }
     } else if let Some(case) = cases.iter().find(|case| case.init.is_some()) {
@@ -917,12 +918,13 @@ fn check_census_source(
     let Some(init) = &case.init else {
         return Ok(());
     };
-    let stream = driver.census_stream();
+    let from_gateway = driver.census_from_gateway();
     let offline_stream = match &case.reader {
         ReaderSource::Offline(name) => Some(name),
         ReaderSource::Live => None,
     };
-    let from_stream = stream.is_some() && stream.as_ref() == offline_stream;
+    let from_stream =
+        from_gateway && offline_stream.is_some_and(|name| name.as_str() == GATEWAY_STREAM); // BORROW: explicit .as_str()
     let labelled_ok = if from_stream {
         matches!(init.source, CensusSource::Gateway | CensusSource::Collected)
     } else {
@@ -943,12 +945,11 @@ fn check_census_source(
             ),
         ));
     }
-    if init.source == CensusSource::Harness && stream.is_some() && case.reader == ReaderSource::Live
-    {
+    if init.source == CensusSource::Harness && from_gateway && case.reader == ReaderSource::Live {
         return Err(case_failure(
             case,
             "census",
-            "the driver names a census stream, so a live reader's inventory is not its census"
+            "the driver takes its census from the gateway, so a live reader's inventory is not its census"
                 .to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
@@ -1042,7 +1043,7 @@ fn check_collect(
                 }
             }
             CollectSpec::Exec { spec, .. } => check_command("collect", spec, setup, owned)?,
-            CollectSpec::File { .. } => {}
+            CollectSpec::File { .. } | CollectSpec::Home { .. } => {}
         }
     }
     Ok(())
@@ -1304,6 +1305,7 @@ pub fn run(
     check_names(driver)?;
     check_answers(driver)?;
     let plan = driven("plan", driver.plan(setup.cell, setup.workspace))?;
+    check_config_check(driver, &plan)?;
     check_capabilities(driver, &plan, setup, cases, &owned)?;
     check_builds(driver, &plan, setup, &owned)?;
     for case in cases {

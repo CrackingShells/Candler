@@ -12,9 +12,9 @@ use candler_schemas::trace::{EndedBy, Session};
 use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
-    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, CommandSpecError, DriverFact,
-    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath,
-    StopSpec, Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
+    CommandSpecError, DriverFact, GatewayEnv, HarnessId, LoadedFile, Observed, Prepared,
+    PreparedFile, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -63,6 +63,30 @@ pub enum DriverError {
     /// A command the driver could not build.
     #[error(transparent)]
     Command(#[from] CommandSpecError),
+    /// The harness's own check rejects a file Candler installed for the cell.
+    #[error("Candler installed {installed} at {at}; {harness} rejects it: {output}")]
+    HarnessRejectedInput {
+        /// The pointer into the experiment file of the setting the file comes from.
+        path: String,
+        /// What Candler installed.
+        installed: String,
+        /// Where Candler installed it.
+        at: String,
+        /// The harness's name, as its users write it.
+        harness: String,
+        /// What the harness's check printed.
+        output: String,
+    },
+    /// The workspace instruction text and a declared input mount a file at one path.
+    #[error("`{path}` and the input `{input}` both mount a file at `{file}`")]
+    InstructionsCollide {
+        /// The pointer into the experiment file of the instruction text.
+        path: String,
+        /// The input that mounts the same path.
+        input: String,
+        /// The path both mount.
+        file: String,
+    },
     /// A record of a session that a tracker cannot read.
     #[error("session record cannot be read: {detail}")]
     Record {
@@ -103,6 +127,9 @@ pub struct Plan {
     pub command: CommandSpec,
     /// How the harness runs the cell as a session, or `None` for a harness that runs none.
     pub session: Option<SessionSpec>,
+    /// The files the core mounts read-only at the workspace root, each by name: the instruction
+    /// text of the workspace. Empty when the cell sets none.
+    pub workspace_files: Vec<PreparedFile>,
 }
 
 impl Plan {
@@ -113,6 +140,7 @@ impl Plan {
             prepared,
             command,
             session: None,
+            workspace_files: Vec::new(),
         }
     }
 
@@ -142,6 +170,30 @@ pub trait HarnessDriver: Send + Sync {
     /// # Errors
     /// Returns [`DriverError::VersionOutput`] if `output` names no version.
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError>;
+
+    /// The command that has the harness check the configuration files `plan` installs, run in the
+    /// cell's image without network, or `None` for a harness with no check. The answer agrees
+    /// with [`DriverFact::ConfigCheck`]: a driver that states the fact refused returns `None`,
+    /// and one that states it mapped returns a command.
+    ///
+    /// The core runs the command and keeps what it printed on standard output and on standard
+    /// error. The exit status does not decide the verdict, so a command that reports a finding by
+    /// exiting non-zero, and one that reports on standard error, are read by
+    /// [`HarnessDriver::read_config_check`]. The check could not run, and the job is refused for
+    /// that, when the command cannot be started, exits `124` (the core's timeout), `125`, `126` or
+    /// `127`, is ended by a signal, prints nothing, or prints more than the core keeps.
+    fn config_check(&self, plan: &Plan) -> Option<CommandSpec>;
+
+    /// What the output of [`HarnessDriver::config_check`] says of the files; a driver with no
+    /// check reads every output as clean.
+    ///
+    /// `output` is the command's standard output followed by its standard error, as one byte
+    /// string, whatever its exit status; it is never empty and never cut short. The driver reads
+    /// a finding wherever the harness prints one.
+    fn read_config_check(&self, output: &[u8]) -> CheckVerdict;
+
+    /// The name of the file the harness reads at the root of the workspace as instructions.
+    fn workspace_instruction_file(&self) -> &'static str;
 
     /// How the driver meets `setting`: what the harness does for it, what Candler does in its
     /// place, or why nobody does. Every key has an answer; there is no default.
@@ -193,13 +245,20 @@ pub trait HarnessDriver: Send + Sync {
         Vec::new()
     }
 
-    /// The raw stream the gateway's census is stored under when the harness has no init event, or
-    /// `None` when the census comes from the live reader's init report. The core reads the tool
-    /// names the gateway saw in the model requests and reports them as the inventory, labelled
-    /// [`crate::spec::CensusSource::Gateway`]; a run none of whose requests carry tools leaves it
-    /// unrecorded, never an empty set.
-    fn census_stream(&self) -> Option<StreamName> {
-        None
+    /// Whether the census is the tool names the gateway saw in the model requests (the harness
+    /// has no init event), reported as the inventory and labelled
+    /// [`crate::spec::CensusSource::Gateway`], or comes from the live reader's init report. A run
+    /// none of whose requests carry tools leaves the census unrecorded, never an empty set.
+    fn census_from_gateway(&self) -> bool {
+        false
+    }
+
+    /// The instruction files the harness loaded, as `stream` shows them: `bytes` is that
+    /// stream as the core archived it for the run. A driver reads the streams it knows and lists nothing for any other. An empty list means no file was
+    /// observed, and the census records nothing.
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        let _ = (stream, bytes);
+        Vec::new()
     }
 
     /// Where a treatment's skill tree comes from and where the harness reads it.

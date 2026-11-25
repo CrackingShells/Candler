@@ -19,9 +19,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError,
-    DriverFact, EnvEntry, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd, PendingItem,
-    PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec,
-    SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    DriverFact, EnvEntry, GATEWAY_STREAM, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd,
+    PendingItem, PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose,
+    SessionSpec, SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -246,7 +246,7 @@ fn open_cases() -> Result<Vec<Case>, TestError> {
     let ses = |text: &str| sid(text);
     let stdout = name("stdout")?;
     let export = name("export")?;
-    let record = name("model_requests")?;
+    let record = name(GATEWAY_STREAM)?;
     let tools = InitReport::new(
         json!([
             "edit",
@@ -448,13 +448,14 @@ struct Patched {
     wordless: Option<AgentSetting>,
     stop: Option<StopSpec>,
     extra_arg: Option<String>,
-    census_stream_removed: bool,
+    census_from_gateway_removed: bool,
     eager_census: bool,
     session: Option<SessionSpec>,
     extra_file: Option<PreparedFile>,
     host_collect: bool,
     state_override: Option<Vec<StatePath>>,
     gateway_override: Option<GatewayEnv>,
+    config_fact: Option<Answer>,
 }
 
 impl Patched {
@@ -465,13 +466,14 @@ impl Patched {
             wordless: None,
             stop: None,
             extra_arg: None,
-            census_stream_removed: false,
+            census_from_gateway_removed: false,
             eager_census: false,
             session: None,
             extra_file: None,
             host_collect: false,
             state_override: None,
             gateway_override: None,
+            config_fact: None,
         }
     }
 }
@@ -518,6 +520,20 @@ impl TraceReader for EagerCensus {
 }
 
 impl HarnessDriver for Patched {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.inner.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.inner.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.inner.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -555,6 +571,11 @@ impl HarnessDriver for Patched {
     }
 
     fn fact(&self, fact: DriverFact) -> Answer {
+        if let Some(answer) = self.config_fact
+            && fact == DriverFact::ConfigCheck
+        {
+            return answer;
+        }
         self.inner.fact(fact)
     }
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -567,12 +588,8 @@ impl HarnessDriver for Patched {
             .clone() // BORROW: .clone() copies the override
             .unwrap_or_else(|| self.inner.state_paths())
     }
-    fn census_stream(&self) -> Option<StreamName> {
-        if self.census_stream_removed {
-            None
-        } else {
-            self.inner.census_stream()
-        }
+    fn census_from_gateway(&self) -> bool {
+        !self.census_from_gateway_removed && self.inner.census_from_gateway()
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let mut plan = self.inner.plan(cell, workspace)?;
@@ -602,7 +619,7 @@ impl HarnessDriver for Patched {
         servers: &[String],
     ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
-        if self.eager_census && stream.as_str() == "model_requests" {
+        if self.eager_census && stream.as_str() == GATEWAY_STREAM {
             return Some(Box::new(EagerCensus)); // TRAIT_OBJECT: the trait returns readers as objects
         }
         self.inner.offline_reader(stream, servers)
@@ -679,6 +696,25 @@ struct Keeps {
 }
 
 impl HarnessDriver for Keeps {
+    fn config_check(
+        &self,
+
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        let _ = plan;
+
+        None
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        let _ = output;
+
+        candler_harness::spec::CheckVerdict::Clean
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        "AGENTS.md"
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -791,12 +827,12 @@ impl HarnessDriver for Keeps {
 
 /// Guards: R01 §Harness drivers, §Agent environment and secrets, §`OpenCode` v2, §Session runner —
 /// the checks that refuse a broken driver, each its own section below: a session capability
-/// without a session spec; a census capability with neither a census stream nor an init report;
+/// without a session spec; a census capability with neither a gateway census nor an init report;
 /// a census record with no request read as an empty inventory (unrecorded, never an empty set);
 /// execution outside the child with no pre-stop; a secret in the argument vector, or a variable
 /// the core owns; a driver that names no gateway variables; a config naming an undeclared
 /// variable; a host collect for a driver with per-run state; two state paths that are one path,
-/// or a file that is another's parent; a census stream with no reader; a stop script that matches
+/// or a file that is another's parent; a gateway census with no reader; a stop script that matches
 /// itself (`pgrep`/`pkill` with the full-command-line option, in any cluster); `Action::resolve`
 /// falling back for an unknown or refused id; an inventory from a source that saw no tool; two state
 /// paths sharing a variable or named like a gateway variable or not a variable at all; gateway names
@@ -826,9 +862,20 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
         "{message}"
     );
 
-    // A census capability with neither a census stream nor an init report is refused.
+    // A harness check stated in the facts with no command behind it is refused.
     let mut broken = Patched::new();
-    broken.census_stream_removed = true;
+    broken.config_fact = Some(Answer::Mapped {
+        construct: "test stand-in",
+    });
+    let message = refusal(&broken, &cases)?;
+    assert!(
+        message.contains("ConfigCheck is stated and config_check returns no command"),
+        "{message}"
+    );
+
+    // A census capability with neither a gateway census nor an init report is refused.
+    let mut broken = Patched::new();
+    broken.census_from_gateway_removed = true;
     // Only the cases that expect no inventory remain, so no init report backs the capability.
     let no_inventory_cases: Vec<Case> = open_cases()?
         .into_iter()
@@ -837,7 +884,7 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     assert!(!no_inventory_cases.is_empty());
     let message = refusal(&broken, &no_inventory_cases)?;
     assert!(
-        message.contains("neither a census stream nor an init report"),
+        message.contains("neither a gateway census nor an init report"),
         "{message}"
     );
 
@@ -1130,6 +1177,20 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
 struct Silent(LinesDriver);
 
 impl HarnessDriver for Silent {
+    fn config_check(
+        &self,
+        plan: &candler_harness::driver::Plan,
+    ) -> Option<candler_harness::spec::CommandSpec> {
+        self.0.config_check(plan)
+    }
+
+    fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+        self.0.read_config_check(output)
+    }
+
+    fn workspace_instruction_file(&self) -> &'static str {
+        self.0.workspace_instruction_file()
+    }
     fn skills(&self) -> candler_harness::skills::SkillTree {
         candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
     }
@@ -1231,6 +1292,20 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
     }
     struct Sessioned(Patched);
     impl HarnessDriver for Sessioned {
+        fn config_check(
+            &self,
+            plan: &candler_harness::driver::Plan,
+        ) -> Option<candler_harness::spec::CommandSpec> {
+            self.0.config_check(plan)
+        }
+
+        fn read_config_check(&self, output: &[u8]) -> candler_harness::spec::CheckVerdict {
+            self.0.read_config_check(output)
+        }
+
+        fn workspace_instruction_file(&self) -> &'static str {
+            self.0.workspace_instruction_file()
+        }
         fn skills(&self) -> candler_harness::skills::SkillTree {
             candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
         }
@@ -1291,8 +1366,8 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn state_paths(&self) -> Vec<StatePath> {
             self.0.state_paths()
         }
-        fn census_stream(&self) -> Option<StreamName> {
-            self.0.census_stream()
+        fn census_from_gateway(&self) -> bool {
+            self.0.census_from_gateway()
         }
         fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
             let plan = self.0.plan(cell, workspace)?;

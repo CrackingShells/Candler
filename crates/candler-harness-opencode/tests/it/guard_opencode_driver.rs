@@ -13,8 +13,9 @@ use std::str::FromStr as _;
 use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, AgentSetting, Answer, Cell, CollectSpec, EffortLevel, Observed, PermissionMode,
-    ProcessEnd, ProcessExit, StopSignal, Workspace,
+    Action, AgentSetting, Answer, Cell, CheckVerdict, CollectSpec, DriverFact, EffortLevel,
+    FileRoot, GATEWAY_STREAM, InstructionScope, Observed, PermissionMode, ProcessEnd, ProcessExit,
+    StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -1679,5 +1680,230 @@ fn the_config_holds_the_keys_opencode_documents() -> Res<()> {
             .contains("OpenCode documents no SSE transport; its `remote` is Streamable HTTP"),
         "{error}"
     );
+    Ok(())
+}
+
+/// Guards: G3 plan — a cell with `instructions.global.opencode`, `instructions.workspace` and
+/// `hooks.opencode` places the global text and each plugin in the config directory of the home
+/// byte for byte, after the configuration file, lists `AGENTS.md` with the workspace text among
+/// the read-only workspace files and writes nothing in the workspace; a cell without them plans
+/// the configuration file alone. A plugin name that leaves the directory is refused at resolve and
+/// at plan.
+/// Oracle: the texts and paths written here by hand, from the probe's rows E9 and E12.
+/// Bite: leave a plugin out, write `AGENTS.md` into the prepared files, or install the global text
+/// outside the config directory.
+#[test]
+fn opencode_installs_the_global_text_the_plugins_and_the_workspace_text() -> Res<()> {
+    let driver = OpenCodeDriver::new();
+    let workspace = Workspace::new(Path::new("/work/run"));
+    let extra = [
+        ("instructions.global", json!({"opencode": "global text"})),
+        ("instructions.workspace", json!("workspace text")),
+        (
+            "hooks",
+            json!({"opencode": {"plugins": {"good.ts": "export default {}\n"}}}),
+        ),
+    ];
+    let cell = values(&extra)?;
+    let plan = driver.plan(&Cell::new(&cell), &workspace)?;
+    let files: Vec<(&str, FileRoot, &[u8])> = plan
+        .prepared
+        .files
+        .iter()
+        .map(|file| (file.path.as_str(), file.root, file.contents.as_slice()))
+        .collect();
+    assert_eq!(
+        files.first().map(|file| file.0),
+        Some(".xdg/config/opencode/opencode.json")
+    );
+    assert_eq!(
+        files.get(1..),
+        Some(
+            [
+                (
+                    ".xdg/config/opencode/AGENTS.md",
+                    FileRoot::Home,
+                    b"global text".as_slice()
+                ),
+                (
+                    ".xdg/config/opencode/plugins/good.ts",
+                    FileRoot::Home,
+                    b"export default {}\n".as_slice()
+                ),
+            ]
+            .as_slice()
+        )
+    );
+    let [file] = plan.workspace_files.as_slice() else {
+        return Err("expected one workspace file".into());
+    };
+    assert_eq!(file.path.as_str(), "AGENTS.md");
+    assert_eq!(file.root, FileRoot::Workspace);
+    assert_eq!(file.contents, b"workspace text");
+
+    let bare = values(&[])?;
+    let plan = driver.plan(&Cell::new(&bare), &workspace)?;
+    let paths: Vec<&str> = plan
+        .prepared
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(paths, [".xdg/config/opencode/opencode.json"]);
+    assert_eq!(plan.workspace_files, []);
+
+    for name in ["../x.ts", "a/../../x.ts", "/etc/x.ts"] {
+        let hostile = values(&[("hooks", json!({"opencode": {"plugins": {name: "x"}}}))])?;
+        assert!(
+            driver.check_settings(&Cell::new(&hostile)).is_err(),
+            "{name} passed the check"
+        );
+        assert!(
+            driver.plan(&Cell::new(&hostile), &workspace).is_err(),
+            "{name} was planned"
+        );
+    }
+    let other = values(&[("hooks", json!({"claude-code": {}}))])?;
+    assert!(driver.check_settings(&Cell::new(&other)).is_err());
+    assert_eq!(driver.workspace_instruction_file(), "AGENTS.md");
+    Ok(())
+}
+
+/// Guards: G3 rows — the instructions, hooks and config check answers are the mapping the plan
+/// installs, not a refusal.
+/// Oracle: the variants, written by hand.
+/// Bite: leave any of the four answers refused.
+#[test]
+fn opencode_answers_the_instruction_hook_and_check_rows_as_mapped() {
+    let driver = OpenCodeDriver::new();
+    for setting in [
+        AgentSetting::Instructions(InstructionScope::Global),
+        AgentSetting::Instructions(InstructionScope::Workspace),
+        AgentSetting::Hooks,
+    ] {
+        assert!(
+            matches!(driver.answer(setting), Answer::Mapped { .. }),
+            "{setting:?}"
+        );
+    }
+    assert!(matches!(
+        driver.fact(DriverFact::ConfigCheck),
+        Answer::Mapped { .. }
+    ));
+}
+
+/// Guards: the census — the instruction files of the first request that offers tools, read from the
+/// recorded gateway stream through the driver, reach `census.instructions` in the order the
+/// request holds them: the file under the agent's config directory as `user`, the workspace file
+/// as `project`, each as `OpenCode` printed its path; another stream, or a stream with no context
+/// line, lists nothing.
+/// Oracle: the recorded system text of an `OpenCode` 2.2.7 request (`fixtures/gateway`) and the
+/// expected value by hand.
+/// Bite: list the "Instructions from the user" sentence of the base prompt, label the workspace file
+/// `user`, or read the title request.
+#[test]
+fn opencode_census_names_the_instruction_files_of_the_first_request_with_tools() -> Res<()> {
+    use candler_core::runner::evidence::census::census_instructions;
+    let driver = OpenCodeDriver::new();
+    let bytes = std::fs::read(fixtures().join("gateway/census_instructions.jsonl"))?;
+    let stream: StreamName = GATEWAY_STREAM.parse()?;
+    let loaded = driver.loaded_instructions(&stream, &bytes);
+    let value = census_instructions(&loaded)?.ok_or("nothing recorded")?;
+    assert_eq!(value.path().to_string(), "census.instructions");
+    assert_eq!(
+        serde_json::to_value(value.value())?,
+        json!([
+            {"path": "/home/agent/.xdg/config/opencode/AGENTS.md", "scope": "user"},
+            {"path": "AGENTS.md", "scope": "project"},
+        ])
+    );
+    let moved =
+        String::from_utf8(bytes.clone())?.replace("/work/AGENTS.md", "/work/.xdg/config/AGENTS.md");
+    assert_eq!(
+        serde_json::to_value(driver.loaded_instructions(&stream, moved.as_bytes()))?,
+        json!([
+            {"path": "/home/agent/.xdg/config/opencode/AGENTS.md", "scope": "user"},
+            {"path": ".xdg/config/AGENTS.md", "scope": "project"},
+        ])
+    );
+    let other: StreamName = "stdout".parse()?;
+    assert_eq!(driver.loaded_instructions(&other, &bytes), []);
+    let first_line = bytes
+        .split(|byte| *byte == b'\n')
+        .next()
+        .ok_or("empty fixture")?;
+    assert_eq!(driver.loaded_instructions(&stream, first_line), []);
+    Ok(())
+}
+
+/// Guards: the config check — the start of `opencode run` with a model that does not exist ends at
+/// the model, so output with that line is a report; a `level=WARN` line is a rejection whatever the exit status and the `INFO` lines, and a `level=ERROR` line (the
+/// environment's, such as a watcher that cannot start or a model list that cannot be fetched) is not; output without the line (empty, an error, a start
+/// that failed before the model) is a rejection carrying that output, so a check that never ran
+/// never passes. The command keeps the plan's configuration home, moves the data home and the
+/// database under a throwaway directory, and runs in the workspace.
+/// Oracle: the recorded outputs of `OpenCode` 2.2.7 in `fixtures/check`.
+/// Bite: reject an `ERROR` line, pass a `WARN` line, accept empty output, or leave the database at the run's.
+#[test]
+fn opencode_config_check_reads_the_warnings_of_a_start_that_reached_the_model() -> Res<()> {
+    let driver = OpenCodeDriver::new();
+    let cell = values(&[])?;
+    let plan = driver.plan(&Cell::new(&cell), &Workspace::new(Path::new("/work")))?;
+    let check = driver.config_check(&plan).ok_or("no check")?;
+    assert_eq!(
+        check.argv(),
+        [
+            "opencode",
+            "run",
+            "--standalone",
+            "--print-logs",
+            "-m",
+            "probe/none",
+            "x"
+        ]
+    );
+    let set: Vec<&str> = check
+        .env_overlay()
+        .iter()
+        .map(|entry| entry.name.as_str())
+        .collect();
+    assert_eq!(set, ["XDG_DATA_HOME", "OPENCODE_DB"]);
+    let recorded = |name: &str| std::fs::read(fixtures().join("check").join(name));
+    assert_eq!(
+        driver.read_config_check(&recorded("valid.txt")?),
+        CheckVerdict::Clean
+    );
+    let CheckVerdict::Rejected { output } = driver.read_config_check(&recorded("bad_json.txt")?)
+    else {
+        return Err("a malformed opencode.json is not rejected".into());
+    };
+    assert!(
+        output.lines().all(|line| line.contains("level=WARN")),
+        "{output}"
+    );
+    assert!(output.contains("rejected malformed JSON or JSONC document"));
+    let CheckVerdict::Rejected { output } = driver.read_config_check(&recorded("bad_plugin.txt")?)
+    else {
+        return Err("a plugin with no default export is not rejected".into());
+    };
+    assert_eq!(output.lines().count(), 1, "{output}");
+    assert!(output.contains("Plugin must export a default definition"));
+    let valid = String::from_utf8(recorded("valid.txt")?)?;
+    let with_environment_errors = format!(
+        "{valid}timestamp=2026-11-25T08:57:01.050Z level=ERROR run=8c7beda5 message=\"watcher backend not supported\" directory=/home/agent/.xdg/config/opencode\ntimestamp=2026-11-25T08:57:01.060Z level=ERROR run=8c7beda5 message=\"Failed to fetch models.dev\" cause=EAI_AGAIN\n"
+    );
+    assert_eq!(
+        driver.read_config_check(with_environment_errors.as_bytes()),
+        CheckVerdict::Clean
+    );
+    let no_model = b"timestamp=2026-11-25T08:56:41.603Z level=INFO message=\"cli starting\"\n";
+    for not_a_report in [&b""[..], b"error: could not reach the server\n", no_model] {
+        assert_eq!(
+            driver.read_config_check(not_a_report),
+            CheckVerdict::Rejected {
+                output: String::from_utf8_lossy(not_a_report).into_owned()
+            }
+        );
+    }
     Ok(())
 }

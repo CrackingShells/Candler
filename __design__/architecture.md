@@ -679,7 +679,7 @@ I3, so event times are reproducible even where the harness emits none.
 
 | Phase | Needed | Varies between harnesses |
 |---|---|---|
-| Prepare | Model, endpoint, skill or plug-in, MCP servers, permissions and instructions written into the workspace | File names and formats; model ids and provider configuration |
+| Prepare | Model, endpoint, skill or plug-in, MCP servers, permissions, and instructions written into the home (global) and mounted read-only in the workspace | File names and formats; model ids and provider configuration |
 | Confine | An in-harness guard where one exists (Claude Code's PreToolUse hook) | Some have none; the container is then the only boundary |
 | Launch | Headless command line, environment overlay, working directory | Flags; budget options |
 | Observe | Live events, normalised; the session ids seen | Streamed on stdout, or kept in a local database |
@@ -692,7 +692,7 @@ I3, so event times are reproducible even where the harness emits none.
 ### Traits (signatures only)
 
 Every item added for the second harness (`answer`, `fact`, `check_settings`, `gateway`,
-`state_paths`, `census_stream`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
+`state_paths`, `census_from_gateway`, `session`, `session_tracker`, `classify_end`) has a default body, so a driver
 implements only what its harness has.
 
 - `HarnessDriver`
@@ -715,8 +715,8 @@ implements only what its harness has.
     driver. No default names exist: a driver that names none is refused at run time
   - `state_paths() -> StatePath { env, kind: Dir | File, subpath }[]`: the places the harness
     keeps state under the agent's home. The core makes each per run and sets its variable
-  - `census_stream() -> Option<StreamName>`: the raw stream the gateway's census is stored under,
-    for a harness with no init event. The core reads the gateway census itself
+  - `census_from_gateway() -> bool`: the harness has no init event, so the core reads the census
+    from the gateway's record of the first request
   - `session(cell, workspace) -> Option<SessionSpec { command, input, close, hooks }>` and
     `session_tracker() -> Option<Box<dyn SessionTracker>>`
   - `stop() -> StopSpec { pre_stop: Option<Action>, signal, grace }`, with
@@ -731,8 +731,9 @@ implements only what its harness has.
     which the core calls, defaults to `classify_exit` and lets a harness whose exit status covers
     several endings read the live reader's last word or the export
   - `collect(workspace, observed) -> CollectSpec[]`, with
-    `CollectSpec = File(glob) | Command(CommandSpec, name) | Exec(CommandSpec, name)`. The core
-    runs `Exec` after the agent exited, in a throwaway container over the run's mounts and state
+    `CollectSpec = File(glob) | Command(CommandSpec, name) | Exec(CommandSpec, name) | Home(path, name)`.
+    `Home` archives a file under the agent's home as the stream `name`, read on the host after the
+    run. The core runs `Exec` after the agent exited, in a throwaway container over the run's mounts and state
     variables (`candler.role=control`, no network, no gateway name), and archives its stdout as
     the stream `name`
 - `TraceReader`
@@ -774,6 +775,19 @@ reader and the recogniser of its raw streams. `request.harness` selects the entr
 image or resolver is built, and an unknown name is refused (`experiment.unknown_harness`), never
 run as another harness. `comparable.harness.driver` is `None` for live cells. The label
 `candler.cc_version` on a base image holds the harness version, whatever the harness.
+
+**The job-start harness check.** A driver may name a command that has its harness read the files
+Candler installs for a cell (`config_check(plan)`) and a reader of what it printed
+(`read_config_check(output) -> Clean | Rejected { output }`). Before the first run, the core groups
+the planned cells by everything that command reads (the harness, the image, the home and
+workspace files, the declared inputs, the command with its cwd and overlay, the container
+environment and the treatment), runs it once per group in a container without network, and passes the reader standard
+output followed by standard error, whatever the exit status. A check that cannot run (the container
+does not start, the command is missing, times out or is ended by a signal, or it prints nothing or
+too much) is refused as `jobs.config_check_failed`, an environment fault; a rejection is refused as
+`experiment.harness_rejected_input`, naming the files and the setting they come from. The check
+container mounts the cell's declared inputs as the run does, so the verdict
+(`provenance.harness_config_check`) covers every file the harness reads at start.
 
 **The shared fixture suite.** `candler-harness`, under the feature `conformance`, holds one suite
 that every driver crate runs over its recorded streams. It checks that gateway names, state paths,
@@ -860,7 +874,7 @@ version and by the sha256 of the release archive of each architecture.
   `<server>_<tool>`), the deny rows last. A name with no OpenCode action is refused.
 - **Census.** No event, command or export lists OpenCode's tools. The tool names in the request the
   agent sends to the model are the inventory, so the gateway sidecar records the names of each
-  request, and the core takes the first request that carries tools (`census_stream`,
+  request, and the core takes the first request that carries tools (`census_from_gateway`,
   `census.source = gateway`). A run whose requests carry no tools records no inventory. The verdict never takes a
   gateway inventory for a harness's own.
 - **Facts.** `graceful_stop`, `census` and `execution_outside_child`. Not `SessionMode`.
@@ -902,10 +916,12 @@ through stdin and stdin stays open, so a notification starts a further turn.
   has one. A turn that ends with no Stop payload (a turn cap error, an API error) leaves the state
   unknown, and the session runs to its cap rather than closing.
 - **Hooks.** The driver installs observation hooks outside the workspace (a settings file in the
-  agent's home, loaded under `--setting-sources project,local`). The hook command appends the Stop
-  or SessionEnd payload with the container's clock to a log, prints nothing and always exits 0, so
-  it never blocks or decides (I9). The log is archived as the raw stream `hooks`, so the session
-  measures can be re-derived (I3). Hooks are never trusted for the turn end.
+  agent's home, passed with `--settings`; `user` joins `--setting-sources` when a global
+  instruction text is set). The hook command appends the payload of `InstructionsLoaded`, `Stop`
+  or `SessionEnd`, with the container's clock, to a log, in a headless run as in a session, prints
+  nothing and always exits 0, so it never blocks or decides (I9). The log is archived as the raw
+  stream `hooks`, so the session measures can be re-derived (I3). Hooks are never trusted for the
+  turn end.
 - **Measured, never filtered.** The agent's own stopping is recorded as `measured[]` paths:
   `session.idle_s`, `session.turns` (turns that ended), `session.yielded_at_ms` (from the runner's
   preparation of the session to the end of the last turn), `session.pending_at_end` (a list of
@@ -1243,7 +1259,8 @@ never compares an inventory with one of another source. The census names no serv
 
 `Session {id, source{harness, harness_version, reader, reader_version}, model, started_at?,
 ended_at?, ended_by, parent_session?, raw_ref}`; `Event {seq, at?, kind, span?, raw_ref, ext}` with
-kinds `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
+kinds `context_start` (`system`, `first_message`: the run's first model request that carries tools, as the
+gateway received it; the root session's first event), `user_message`, `assistant_message`, `tool_call` (`origin`, `argv?`, `wrapped_calls[]?` for a
 call that bundles several MCP calls), `tool_result` (`is_error`, `denied?`, `exit?`: the shell call's `ExitStatus` as the harness reported it, absent for a non-shell, denied or uncoded result), `notification`, `usage`
 (`scope: message | session_total`). `at` comes from the harness when it emits one, else from the
 frame time in the raw file, else it is absent.

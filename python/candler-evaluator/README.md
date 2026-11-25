@@ -32,6 +32,8 @@ grades one item, and may expose `NAME`, `VERSION`, `DIST`, `INSTRUMENTS`, `KIND_
   `snapshots`, `trace`, `raw` and `manifest` (the last three are booleans). It is set per kind in
   `KIND_SPECS`. A request is served the union of the needs of the kinds it sends, so a part is
   served when a kind of the request declares it, and every kind of the request can read it.
+  Declaring `trace` hands the kind the run's system text and first message verbatim
+  (`context_start`), which may be the treatment under test.
 - **`params_schema`** is the JSON Schema of a kind's params, also set per kind in `KIND_SPECS`.
   `default_deadline_ms` sits beside them.
 

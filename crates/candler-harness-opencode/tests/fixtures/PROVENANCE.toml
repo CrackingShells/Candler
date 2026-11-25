@@ -217,3 +217,36 @@ export_sha256 = "ebadedd16e3bbcd6597251af0bbb2ff62c994d0aa913196fa6bb6102c7695fc
 model = "fake"
 stdout_sha256 = "e7351995a187ad391ca6b0b126992621674827d1b361218fe8bee52f1f804d99"
 export_sha256 = "5a6e17fa538f01adc8f31df34a053735cb09bb8c065c7aef3ee2425603da1aef"
+
+# check/: the output of the config check, `opencode run --standalone --print-logs -m probe/none x
+# </dev/null` (stdout, then stderr, as one file; exit 1 on every one), recorded on 2026-11-25 as user
+# agent, --network none, in image candler-base:src-b062c666af0a (OpenCode 2.2.7), cwd /work holding
+# AGENTS.md, with XDG_CONFIG_HOME=/home/agent/.xdg/config, a throwaway XDG_DATA_HOME and OPENCODE_DB
+# under /tmp, and the config directory opencode/ holding the files named below. No token was spent
+# and no model was called.
+[check.valid]
+path = "check/valid.txt"
+home = "opencode.json (a provider only), AGENTS.md, plugins/good.ts (a default export with an id and a setup function)"
+sha256 = "03c5e1a8d07a105f491e1da4a9a8ac5bc66d8c54f6c8471fb160a7581d3654cf"
+
+[check.bad_json]
+path = "check/bad_json.txt"
+home = "as valid, with an opencode.json that is not JSON"
+sha256 = "ce004e9dd8c7e840fc3637970e2631b5a37729e7783741daf31edb2acb963fc6"
+
+[check.bad_plugin]
+path = "check/bad_plugin.txt"
+home = "as valid, with a plugins/bad.ts that has no default export"
+sha256 = "9e86e9df7951e71fcec8d25b90bf01fa2b9178294a72341b6454f5c318b6f640"
+
+# gateway/census_instructions.jsonl: the gateway stream of one OpenCode run, assembled by a script
+# from the two request bodies a recorder inside the container received (the title request with no
+# tools, then the agent's with twelve), in the shape the gateway's `census` and `context` lines keep
+# (`assets/docker/gateway/gw.js`, `context`: the system blocks joined by a newline, the text of the
+# first user message). Same image and mounts as the check fixtures, `-m candler/claude-x
+# --format json`, with a global AGENTS.md ("global text"), a workspace AGENTS.md ("workspace text")
+# and a local plugin that adds a system block ("PLUGIN_CONTEXT"). The recorder answered 400.
+[gateway.census_instructions]
+path = "gateway/census_instructions.jsonl"
+sha256 = "a53e4fc42a191434aba7fb8dd4a01c4e78188c9bf7ef39dbe145dddf4a21e08a"
+synthetic = false

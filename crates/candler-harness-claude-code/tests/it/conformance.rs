@@ -360,7 +360,8 @@ fn conformance_claude_session_spec() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
-    let Some(spec) = driver.plan(&Cell::new(&values), &workspace)?.session else {
+    let plan = driver.plan(&Cell::new(&values), &workspace)?;
+    let Some(spec) = plan.session else {
         return Err("the driver returns no session spec".into());
     };
     assert_eq!(
@@ -395,11 +396,16 @@ fn conformance_claude_session_spec() -> Res<()> {
         return Err("the session has no hooks".into());
     };
     assert_eq!(hooks.log.as_str(), ".candler/hooks.jsonl");
-    let [file] = hooks.files.as_slice() else {
-        return Err("expected one settings file".into());
+    let homed: Vec<&PreparedFile> = plan
+        .prepared
+        .files
+        .iter()
+        .filter(|file| file.root == FileRoot::Home)
+        .collect();
+    let [file] = homed.as_slice() else {
+        return Err("expected one home file, the observers' settings".into());
     };
     assert_eq!(file.path.as_str(), ".candler/settings.json");
-    assert_eq!(file.root, FileRoot::Home);
     let settings: Value = serde_json::from_slice(&file.contents)?;
     let events: Vec<&str> = settings["hooks"]
         .as_object()
@@ -407,7 +413,7 @@ fn conformance_claude_session_spec() -> Res<()> {
         .keys()
         .map(String::as_str)
         .collect();
-    assert_eq!(events, ["SessionEnd", "Stop"]);
+    assert_eq!(events, ["InstructionsLoaded", "SessionEnd", "Stop"]);
     for event in events {
         let command = settings["hooks"][event][0]["hooks"][0]["command"]
             .as_str()
@@ -427,12 +433,18 @@ fn conformance_claude_hook_command_observes_without_deciding() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
     let values = values()?;
     let workspace = Workspace::new(Path::new("."));
-    let Some(spec) = driver.plan(&Cell::new(&values), &workspace)?.session else {
-        return Err("the driver returns no session spec".into());
-    };
-    let hooks = spec.hooks.ok_or("the session has no hooks")?;
-    let settings: Value =
-        serde_json::from_slice(&hooks.files.first().ok_or("no settings file")?.contents)?;
+    let plan = driver.plan(&Cell::new(&values), &workspace)?;
+    let hooks = plan
+        .session
+        .and_then(|spec| spec.hooks)
+        .ok_or("the session has no hooks")?;
+    let file = plan
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str() == ".candler/settings.json")
+        .ok_or("no settings file")?;
+    let settings: Value = serde_json::from_slice(&file.contents)?;
     let command = settings["hooks"]["Stop"][0]["hooks"][0]["command"]
         .as_str()
         .ok_or("no hook command")?;
@@ -731,15 +743,7 @@ fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> 
             .ok_or_else(|| format!("the session command lost `{arg}`"))?;
         extras.remove(at);
     }
-    assert_eq!(
-        extras,
-        [
-            "--input-format",
-            "stream-json",
-            "--settings",
-            "/home/agent/.candler/settings.json"
-        ]
-    );
+    assert_eq!(extras, ["--input-format", "stream-json",]);
     Ok(())
 }
 

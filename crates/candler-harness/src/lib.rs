@@ -7,11 +7,13 @@
 //!
 //! - [`spec`] holds the data a driver returns to the core.
 //! - [`driver`] holds [`driver::HarnessDriver`] and its error.
+//! - [`agent_config`] holds the one reader of a cell's instruction texts and hooks.
 //! - [`skills`] holds [`skills::SkillTree`], where a harness reads its skills.
 //! - [`reader`] holds [`reader::TraceReader`], its frame input and its error.
 
 #![deny(clippy::allow_attributes)]
 
+pub mod agent_config;
 #[cfg(feature = "conformance")]
 pub mod conformance;
 pub mod driver;

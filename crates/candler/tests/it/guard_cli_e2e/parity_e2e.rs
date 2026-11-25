@@ -36,9 +36,9 @@ fn experiment(base: &str, harness: &str) -> String {
     base.replace("@HARNESS@", harness)
 }
 
-/// The answers to the stamp call among the requests the fake model recorded after the first
+/// The answers to the call `call_id` among the requests the fake model recorded after the first
 /// `skip`: whether each is an error, and its text.
-fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
+pub(super) fn answers_to(records: &str, skip: usize, call_id: &str) -> Vec<(bool, String)> {
     let mut found = Vec::new();
     for line in records.lines().skip(skip) {
         let Ok(record) = serde_json::from_str::<Value>(line) else {
@@ -49,7 +49,7 @@ fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
             .and_then(|messages| messages.last())
             .and_then(|message| message["content"].as_array());
         for block in blocks.into_iter().flatten() {
-            if block["type"] == "tool_result" && block["tool_use_id"] == CALL_ID {
+            if block["type"] == "tool_result" && block["tool_use_id"] == call_id {
                 let text = block["content"].as_str().map_or_else(
                     || block["content"].to_string(),
                     str::to_owned, // BORROW: .to_owned() makes the owned text
@@ -59,6 +59,87 @@ fn stamp_answers(records: &str, skip: usize) -> Vec<(bool, String)> {
         }
     }
     found
+}
+
+/// The scripted fake model, running in a container, and what a job needs to reach it.
+pub(super) struct Fake {
+    pub(super) container: String,
+    /// The model's address as the job's containers reach it.
+    pub(super) endpoint: String,
+    /// Its CA certificate, which the machine setting `[gateway] upstream_ca` names.
+    pub(super) ca: std::path::PathBuf,
+    _dir: tempfile::TempDir,
+}
+
+/// Builds the fake model's image under a tag of `label`, starts it with the fixture's token and
+/// the settings `env` (each `NAME=value`), waits until it is ready and copies its CA out. The image
+/// and the container go to `made`.
+pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str, env: &[String]) -> Fake {
+    let host = fake_host(real);
+    let publish = format!(
+        "{}::8443",
+        if cfg!(target_os = "linux") {
+            host.as_str()
+        } else {
+            "127.0.0.1"
+        }
+    );
+    let context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
+    let tag = format!("candler-fakemodel:{label}-{}", std::process::id());
+    let tagged = format!("candler.test={label}");
+    must(
+        real,
+        &["build", "-q", "--label", &tagged, "-t", &tag, context],
+    );
+    made.images.push(must(
+        real,
+        &["image", "inspect", "--format", "{{.Id}}", &tag],
+    ));
+    let token = format!("FAKE_TOKEN={TOKEN}");
+    let named = format!("FAKE_HOST={host}");
+    let mut words = vec![
+        "run", "-d", "--label", &tagged, "-p", &publish, "-e", &token, "-e", &named,
+    ];
+    for setting in env {
+        words.extend(["-e", setting.as_str()]);
+    }
+    words.push(&tag);
+    let fake = must(real, &words);
+    made.containers.push(fake.clone()); // BORROW: the cleanup owns its ids
+    let port = must(real, &["port", &fake, "8443/tcp"])
+        .lines()
+        .next()
+        .and_then(|line| line.rsplit(':').next())
+        .expect("a host port")
+        .to_owned();
+    assert!(
+        wait_for(Duration::from_secs(30), || {
+            docker(real, &["exec", &fake, "test", "-f", "/tmp/fake/ca.pem"])
+                .status
+                .success()
+                && docker(real, &["logs", &fake])
+                    .stdout
+                    .windows(5)
+                    .any(|w| w == b"ready")
+        }),
+        "the fake model is ready"
+    );
+    let dir = tempfile::tempdir().unwrap();
+    let ca = dir.path().join("ca.pem");
+    must(
+        real,
+        &[
+            "cp",
+            &format!("{fake}:/tmp/fake/ca.pem"),
+            &ca.display().to_string(),
+        ],
+    );
+    Fake {
+        container: fake,
+        endpoint: format!("https://{host}:{port}"),
+        ca,
+        _dir: dir,
+    }
 }
 
 /// What the fake model has recorded so far: nothing before its first request.
@@ -113,25 +194,25 @@ fn call_origins(text: &str) -> Vec<Value> {
     found
 }
 
-/// A run `candler run` sealed in its own world.
-pub(super) struct Sealed {
-    /// The world the run was made in; dropping it removes its directories.
+/// A job the real `candler run` ran to its end: its world and the store its runs are sealed in.
+pub(super) struct Ran {
     pub(super) world: World,
-    /// The run's directory in the world's store.
-    pub(super) run_dir: PathBuf,
+    pub(super) store: PathBuf,
+    pub(super) log: String,
 }
 
 /// Runs the experiment `text` with the real `candler run` against the fake model at `endpoint`
-/// and waits for its one run to seal.
-pub(super) fn seal(text: &str, endpoint: &str, ca: &Path, made: &mut Made) -> Sealed {
+/// (`stage` puts what the experiment's inputs need in the world first), waits for the job to
+/// end, and returns where it stored its runs.
+pub(super) fn run_job(
+    text: &str,
+    endpoint: &str,
+    ca: &Path,
+    made: &mut Made,
+    stage: impl FnOnce(&World),
+) -> Ran {
     let world = world();
-    let inputs = world.root.join("inputs").join("servers");
-    fs::create_dir_all(&inputs).unwrap();
-    fs::copy(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parity/parity_mcp.py"),
-        inputs.join("parity_mcp.py"),
-    )
-    .unwrap();
+    stage(&world);
     let config = world.root.join("config");
     fs::create_dir_all(config.join("candler")).unwrap();
     fs::write(
@@ -175,9 +256,32 @@ pub(super) fn seal(text: &str, endpoint: &str, ca: &Path, made: &mut Made) -> Se
     let ended = wait_for(Duration::from_secs(600), || {
         fs::read_to_string(&events).is_ok_and(|log| log.contains("job.ended"))
     });
-    let log = fs::read_to_string(&events).unwrap_or_default();
+    let log = fs::read_to_string(&events).unwrap_or_default()
+        + &fs::read_to_string(events.with_file_name("supervisor.log")).unwrap_or_default();
     assert!(ended, "the job ends\n{log}");
+    Ran { world, store, log }
+}
 
+/// A run `candler run` sealed in its own world.
+pub(super) struct Sealed {
+    /// The world the run was made in; dropping it removes its directories.
+    pub(super) world: World,
+    /// The run's directory in the world's store.
+    pub(super) run_dir: PathBuf,
+}
+
+/// Runs the experiment `text` as [`run_job`] does, with the server `parity` staged as its input,
+/// and returns its one sealed run.
+pub(super) fn seal(text: &str, endpoint: &str, ca: &Path, made: &mut Made) -> Sealed {
+    let Ran { world, store, log } = run_job(text, endpoint, ca, made, |world| {
+        let inputs = world.root.join("inputs").join("servers");
+        fs::create_dir_all(&inputs).unwrap();
+        fs::copy(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/parity/parity_mcp.py"),
+            inputs.join("parity_mcp.py"),
+        )
+        .unwrap();
+    });
     let run_dir = fs::read_dir(store.join("runs"))
         .into_iter()
         .flatten()
@@ -198,7 +302,7 @@ fn run_once(
     place: (&str, &str),
     made: &mut Made,
 ) -> Observed {
-    let Sealed { world, run_dir, .. } = seal(text, endpoint, ca, made);
+    let Sealed { world, run_dir } = seal(text, endpoint, ca, made);
     let inspected = Command::new(env!("CARGO_BIN_EXE_candler"))
         .arg("inspect")
         .arg(&run_dir)
@@ -219,89 +323,6 @@ fn run_once(
         rendered,
         mcp: record["mcp"].clone(), // BORROW: .clone() copies the member
         origins: call_origins(&trace),
-    }
-}
-
-/// The scripted fake model, started for one guard.
-pub(super) struct Fake {
-    /// The id of the fake model's container.
-    pub(super) id: String,
-    /// The `https` address the gateway reaches the fake model at.
-    pub(super) endpoint: String,
-    /// The path of the fake model's certificate authority, copied out of its container.
-    pub(super) ca: PathBuf,
-    /// The directory that holds `ca.pem`; it keeps the file alive for as long as the fake lives.
-    _scratch: tempfile::TempDir,
-}
-
-/// Builds the fake model's image and starts it, labelled `label` and given `env`, recording
-/// both in `made`; waits for it to be ready and copies out its certificate authority.
-pub(super) fn start_fake(real: &Path, made: &mut Made, label: &str, env: &[String]) -> Fake {
-    let host = fake_host(real);
-    let publish = format!(
-        "{}::8443",
-        if cfg!(target_os = "linux") {
-            host.as_str()
-        } else {
-            "127.0.0.1"
-        }
-    );
-    made.real = real.to_owned(); // BORROW: the cleanup owns its client path
-    let context = concat!(env!("CARGO_MANIFEST_DIR"), "/../../assets/docker/fakemodel");
-    let tag = format!("candler-fakemodel:{label}-{}", std::process::id());
-    let marked = format!("candler.test={label}");
-    must(
-        real,
-        &["build", "-q", "--label", &marked, "-t", &tag, context],
-    );
-    made.images.push(must(
-        real,
-        &["image", "inspect", "--format", "{{.Id}}", &tag],
-    ));
-    let token = format!("FAKE_TOKEN={TOKEN}");
-    let named = format!("FAKE_HOST={host}");
-    let mut words = vec![
-        "run", "-d", "--label", &marked, "-p", &publish, "-e", &token, "-e", &named,
-    ];
-    for setting in env {
-        words.extend(["-e", setting.as_str()]);
-    }
-    words.push(&tag);
-    let fake = must(real, &words);
-    made.containers.push(fake.clone()); // BORROW: the cleanup owns its ids
-    let port = must(real, &["port", &fake, "8443/tcp"])
-        .lines()
-        .next()
-        .and_then(|line| line.rsplit(':').next())
-        .expect("a host port")
-        .to_owned();
-    assert!(
-        wait_for(Duration::from_secs(30), || {
-            docker(real, &["exec", &fake, "test", "-f", "/tmp/fake/ca.pem"])
-                .status
-                .success()
-                && docker(real, &["logs", &fake])
-                    .stdout
-                    .windows(5)
-                    .any(|w| w == b"ready")
-        }),
-        "the fake model is ready"
-    );
-    let scratch = tempfile::tempdir().unwrap();
-    let ca = scratch.path().join("ca.pem");
-    must(
-        real,
-        &[
-            "cp",
-            &format!("{fake}:/tmp/fake/ca.pem"),
-            &ca.display().to_string(),
-        ],
-    );
-    Fake {
-        endpoint: format!("https://{host}:{port}"),
-        id: fake,
-        ca,
-        _scratch: scratch,
     }
 }
 
@@ -345,8 +366,9 @@ fn parity_one_installed_server_one_traced_call() {
     let real = real_docker();
     let before = must(&real, &["ps", "-aq"]);
     let mut made = Made::default();
-    let fake = start_fake(&real, &mut made, "parity", &[]);
-    let (endpoint, ca) = (fake.endpoint.as_str(), fake.ca.as_path());
+    made.real.clone_from(&real); // BORROW: the cleanup owns its client path
+    let model = start_fake(&real, &mut made, "parity", &[]);
+    let (fake, endpoint, ca) = (&model.container, &model.endpoint, &model.ca);
 
     // one experiment file; only the harness line differs
     let base = base_experiment(
@@ -368,9 +390,9 @@ fn parity_one_installed_server_one_traced_call() {
         ("claude-code", &claude, ("workspace", ".mcp.json")),
         ("opencode", &opencode, ("home", "opencode/opencode.json")),
     ] {
-        let skip = records(&real, &fake.id).lines().count();
+        let skip = records(&real, fake).lines().count();
         let seen = run_once(text, endpoint, ca, place, &mut made);
-        let answers = stamp_answers(&records(&real, &fake.id), skip);
+        let answers = answers_to(&records(&real, fake), skip, CALL_ID);
         if !answers
             .iter()
             .any(|(error, text)| !error && text.contains(STAMP))

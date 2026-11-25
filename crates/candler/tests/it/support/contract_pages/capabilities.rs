@@ -42,6 +42,7 @@ const fn fact_label(fact: DriverFact) -> &'static str {
         DriverFact::ExecutionOutsideChild => "execution outside the child",
         DriverFact::Census => "census source",
         DriverFact::UnsetPermissionMode => "permission mode when none is set",
+        DriverFact::ConfigCheck => "config check",
     }
 }
 

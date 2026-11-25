@@ -223,7 +223,11 @@ fn kinds(root: &std::path::Path) -> Vec<Kind> {
         },
         Kind {
             name: "fake model",
-            args: args(fake_spec("sha256:abc", "token")),
+            args: args(fake_spec(
+                "sha256:abc",
+                "token",
+                &JobId::from_str("01900000-0000-7000-8000-000000000000").expect("a job id"),
+            )),
             network: None,
             tmpfs: &["/fake:rw,mode=1777,size=1m,noexec,nosuid"],
             pids: "64",
@@ -235,7 +239,8 @@ fn kinds(root: &std::path::Path) -> Vec<Kind> {
 }
 
 /// Guards: R01 §Process supervision (control containers) — every control container removes
-/// itself, wears `candler.role=control` and no job label, has a read-only root, no capabilities
+/// itself, wears `candler.role=control` and no job label (the fake model also names the job it
+/// runs for, in a label no sweep selects), has a read-only root, no capabilities
 /// and no new privileges, and keeps its own network and limits: the probes 64 pids and 256m, the
 /// compile 256 pids and 2g on the bridge, the collect its caller's limits with a
 /// cpu cap, and the fake model no network flag.
@@ -269,10 +274,19 @@ fn control_kind_flags_and_limits() {
             ["no-new-privileges"],
             "{name}: privileges"
         );
+        let labels = values_of(args, "--label");
+        let (owners, others): (Vec<&str>, Vec<&str>) = labels
+            .iter()
+            .partition(|label| label.starts_with("candler.control_job="));
         assert_eq!(
-            values_of(args, "--label"),
+            others,
             ["candler.role=control"],
             "{name}: the one label, with no job"
+        );
+        assert_eq!(
+            owners.len(),
+            usize::from(name == "fake model"),
+            "{name}: only the fake model names the job it runs for"
         );
         assert_eq!(
             values_of(args, "--network"),

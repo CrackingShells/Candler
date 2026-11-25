@@ -1,0 +1,21 @@
+{
+  "$id": "urn:candler:schemas:instructions",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The instruction texts of a cell: one global text per harness and one text for the workspace.\n\nThe global text is the one the harness reads from the agent's home; the workspace text is the\none it reads at the root of the workspace. Their contents are free.",
+  "properties": {
+    "global": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The global text of each harness, by harness id.",
+      "type": "object"
+    },
+    "workspace": {
+      "description": "The text at the root of the workspace.",
+      "type": "string"
+    }
+  },
+  "title": "Instructions",
+  "type": "object"
+}

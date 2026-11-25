@@ -140,7 +140,7 @@ fn graded_run_sees_trace() {
         "Run the commands you are given, call the MCP tool stamp of the server parity, then reply done.",
     );
     let mut failures = Vec::new();
-    let mut skip = records(&real, &fake.id).lines().count();
+    let mut skip = records(&real, &fake.container).lines().count();
     for harness in ["claude-code", "opencode"] {
         let Sealed { world, run_dir, .. } = seal(
             &base.replace("@HARNESS@", harness),
@@ -148,7 +148,7 @@ fn graded_run_sees_trace() {
             &fake.ca,
             &mut made,
         );
-        let recorded = records(&real, &fake.id);
+        let recorded = records(&real, &fake.container);
         let sent = scripted_commands(&recorded, skip);
         if sent != [WRITE, EXIT] {
             let requests: Vec<String> = recorded

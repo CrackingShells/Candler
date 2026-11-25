@@ -11,6 +11,7 @@ One page per surface an author writes or a plug-in speaks. Each page holds the s
 | [evaluator-protocol.md](evaluator-protocol.md) | Evaluator protocol | Candler and the evaluator plug-in | none |
 | [outcome-record.md](outcome-record.md) | Outcome record | evaluator plug-in; Candler fills the rest | none |
 | [experiment-file.md](experiment-file.md) | Experiment file | experimenter | `experiment/1` |
+| [trace-file.md](trace-file.md) | Normalised trace | Candler, from a harness's output | none |
 | [evaluator-helper.md](evaluator-helper.md) | Evaluator helper | evaluator kind author | none |
 | [driver-traits.md](driver-traits.md) | Driver traits | driver author | none |
 | [harness-capabilities.md](harness-capabilities.md) | Harness capabilities | experimenter, reading | none |
@@ -169,6 +170,7 @@ Surfaces that name no page of their own: configuration, resolving, running, isol
 | `isolation.sweep_list_failed` | Docker failed while the sweeper listed containers. | - | environment |
 | `jobs.already_supervised` | Another supervisor already holds the lock of the job. | - | environment |
 | `jobs.child_not_reaped` | A host process left behind by a lost job could not be reaped. | - | environment |
+| `jobs.config_check_failed` | The harness's own check of the files Candler installed for it could not run, or printed nothing a verdict can be read from, for example because its container could not be started, the command is missing or timed out, or its output was cut short. | - | environment |
 | `jobs.directory_exists` | The directory of a job to create already exists. | - | environment |
 | `jobs.docker_unavailable` | The docker client cannot be reached when a job's session starts. | - | environment |
 | `jobs.gateway_not_serving` | The gateway of the job does not serve, for example because it did not start or refused the token. | - | environment |

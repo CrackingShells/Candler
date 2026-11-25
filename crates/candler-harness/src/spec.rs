@@ -468,6 +468,15 @@ pub enum CollectSpec {
         /// The name of the stream that archives the output.
         name: StreamName,
     },
+    /// The file at `path` under the agent's home, which the core reads on the host after the run
+    /// and archives as the stream `name`. A run that never wrote the file leaves no stream.
+    #[non_exhaustive]
+    Home {
+        /// The file's path, relative to the agent's home.
+        path: RelPath,
+        /// The name of the stream that archives the file.
+        name: StreamName,
+    },
 }
 
 impl CollectSpec {
@@ -488,6 +497,12 @@ impl CollectSpec {
     #[must_use]
     pub const fn exec(spec: CommandSpec, name: StreamName) -> Self {
         Self::Exec { spec, name }
+    }
+
+    /// The file at `path` under the agent's home, archived as the stream `name`.
+    #[must_use]
+    pub const fn home(path: RelPath, name: StreamName) -> Self {
+        Self::Home { path, name }
     }
 }
 
@@ -641,6 +656,62 @@ impl PermissionMode {
     }
 }
 
+/// Where an instruction text is read: from the agent's home, or from the workspace root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "EXHAUSTIVE: the drivers live in other crates and answer each scope; a new scope must break each of them."
+)]
+pub enum InstructionScope {
+    /// The text the harness reads for every project, from the agent's home.
+    Global,
+    /// The text the harness reads at the root of the workspace.
+    Workspace,
+}
+
+/// What the harness's own check says of the files Candler installed.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum CheckVerdict {
+    /// The check reports no error and no warning.
+    Clean,
+    /// The check reports an error or a warning.
+    Rejected {
+        /// What the check printed.
+        output: String,
+    },
+}
+
+/// Whose instruction file a harness loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum LoadedScope {
+    /// The file is the agent's own, from its home.
+    User,
+    /// The file belongs to the workspace.
+    Project,
+}
+
+/// An instruction file the harness loaded at the start of a run, as the census records it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+#[non_exhaustive]
+pub struct LoadedFile {
+    /// The path the harness loaded: relative to the workspace for a workspace file, absolute
+    /// otherwise.
+    pub path: String,
+    /// Whose file it is.
+    pub scope: LoadedScope,
+}
+
+impl LoadedFile {
+    /// A loaded file.
+    #[must_use]
+    pub const fn new(path: String, scope: LoadedScope) -> Self {
+        Self { path, scope }
+    }
+}
+
 /// What an experiment sets that reaches the agent. A key whose values form a closed set carries
 /// the value, so a new value is a compile error in every driver.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -681,11 +752,15 @@ pub enum AgentSetting {
     CostBudget,
     /// `runner.mode`.
     SessionMode,
+    /// An instruction text, at one scope.
+    Instructions(InstructionScope),
+    /// `hooks`.
+    Hooks,
 }
 
 impl AgentSetting {
     /// Every key, each closed value once.
-    pub const ALL: [Self; 31] = [
+    pub const ALL: [Self; 34] = [
         Self::ModelId,
         Self::ModelEndpoint,
         Self::Effort(EffortLevel::Low),
@@ -717,6 +792,9 @@ impl AgentSetting {
         Self::TurnBudget,
         Self::CostBudget,
         Self::SessionMode,
+        Self::Instructions(InstructionScope::Global),
+        Self::Instructions(InstructionScope::Workspace),
+        Self::Hooks,
     ];
 }
 
@@ -739,17 +817,20 @@ pub enum DriverFact {
     Census,
     /// What the harness does when the experiment sets no permission mode.
     UnsetPermissionMode,
+    /// The harness has a check of its own for the configuration files Candler installs.
+    ConfigCheck,
 }
 
 impl DriverFact {
     /// Every fact.
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::GracefulStop,
         Self::LiveEvents,
         Self::InHarnessGuard,
         Self::ExecutionOutsideChild,
         Self::Census,
         Self::UnsetPermissionMode,
+        Self::ConfigCheck,
     ];
 }
 
@@ -874,6 +955,57 @@ impl Observed {
     }
 }
 
+/// The raw stream the core stores the gateway's record of a run under: the tool names of each
+/// model request and the run's starting context.
+pub const GATEWAY_STREAM: &str = "gateway_census";
+
+/// The starting context of a request, as a context line of [`GATEWAY_STREAM`] holds it: the system
+/// text and the first message.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct StartContext {
+    /// The system text of the request.
+    pub system: String,
+    /// The first message of the request.
+    pub first_message: String,
+}
+
+/// One line of [`GATEWAY_STREAM`]: the tool names of a model request, or the starting context of
+/// one. `seq` is the request's sequence number at the gateway.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+#[serde(untagged)]
+#[non_exhaustive]
+pub enum GatewayRecord {
+    /// The starting context of a request.
+    Context {
+        /// The request's sequence number.
+        seq: u64,
+        /// What the request started from.
+        context: StartContext,
+    },
+    /// The tool names of a request.
+    Tools {
+        /// The request's sequence number.
+        seq: u64,
+        /// The tools the request offered.
+        tools: Vec<String>,
+    },
+}
+
+/// The lines of a [`GATEWAY_STREAM`] that read as a record, each with its index among all the
+/// lines of the stream; any other line is skipped.
+pub fn gateway_records(stream: &[u8]) -> impl Iterator<Item = (usize, GatewayRecord)> {
+    stream
+        .split(|byte| *byte == b'\n')
+        .enumerate()
+        .filter_map(|(frame, line)| {
+            serde_json::from_slice::<GatewayRecord>(line)
+                .ok()
+                .map(|record| (frame, record))
+        })
+}
+
 /// Where an inventory of tools came from. Two inventories from different sources are never the
 /// same observation, and neither equals an unrecorded one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -996,6 +1128,12 @@ pub enum StateKind {
     File,
 }
 
+/// The workspace directory inside the agent's container.
+pub const AGENT_WORKDIR: &str = "/work";
+
+/// The agent's home directory inside the agent's container.
+pub const AGENT_HOME: &str = "/home/agent";
+
 /// A place a harness keeps state, inside the agent's home: the core creates it, sets `env` to its
 /// absolute path inside the container, and keeps it per run.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1117,14 +1255,11 @@ pub enum SessionClose {
     Action(Action),
 }
 
-/// Where the observation hooks write and how the driver installs them. The hooks only observe:
-/// they never block, decide or print.
+/// Where the observation hooks write. The hooks only observe: they never block, decide or print.
+/// The driver installs them as files of the plan, rooted at the agent's home.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HookSpec {
-    /// The files that install the hooks, rooted at the agent's home ([`FileRoot::Home`]), outside
-    /// the workspace.
-    pub files: Vec<PreparedFile>,
     /// The file the hooks append to, relative to the agent's home.
     pub log: RelPath,
     /// The raw stream that archives the log.
@@ -1134,8 +1269,8 @@ pub struct HookSpec {
 impl HookSpec {
     /// A hook spec.
     #[must_use]
-    pub const fn new(files: Vec<PreparedFile>, log: RelPath, stream: StreamName) -> Self {
-        Self { files, log, stream }
+    pub const fn new(log: RelPath, stream: StreamName) -> Self {
+        Self { log, stream }
     }
 }
 
@@ -1187,6 +1322,14 @@ pub enum Framing {
     /// One frame holding the whole stream.
     Document,
 }
+
+/// The id of the Claude Code harness.
+pub const CLAUDE_CODE: &str = "claude-code";
+/// The id of the `OpenCode` harness.
+pub const OPENCODE: &str = "opencode";
+/// The ids of the harnesses this workspace ships a driver for: every driver's id is one of them,
+/// and the keys below a cell's `hooks` and `instructions.global` are checked against them.
+pub const HARNESS_IDS: [&str; 2] = [CLAUDE_CODE, OPENCODE];
 
 /// The identity of a harness: its plain name, the value `comparable.harness.name` and the experiment's harness request hold.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]

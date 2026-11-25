@@ -1338,7 +1338,7 @@ object_only!(EvaluatorEnvironment);
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Needs {
-    /// Whether the check reads the normalised trace, served as `context.trace` when a kind of the request needs it. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. It holds its header alone when the reader failed or the session was silent.
+    /// Whether the check reads the normalised trace, served as `context.trace` when a kind of the request needs it. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. It holds its header alone when the reader failed or the session was silent. Declaring it hands the kind the run's system text and first message verbatim (`context_start`), which may be the treatment under test.
     pub trace: bool,
     /// Whether the check reads the raw streams, served as `context.raw` when a kind of the request needs it. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep, each stored as gzip-compressed JSON lines (`.jsonl.gz`).
     #[serde(default)]

@@ -1,6 +1,6 @@
 //! The census of a run: the tools the agent saw at its start, as the harness's driver reports them.
 
-use candler_harness::spec::{CensusSource, InitReport};
+use candler_harness::spec::{CensusSource, InitReport, LoadedFile};
 use candler_schemas::primitives::{FieldPath, NameToken};
 use candler_schemas::values::{JsonValue, MeasuredValue, ValueSource};
 use serde_json::Value;
@@ -79,4 +79,20 @@ pub fn census(init: Option<&InitReport>) -> Result<Vec<MeasuredValue>, CensusErr
         values.push(measured("census.source", Value::String(label.to_owned()))?); // BORROW: .to_owned() gives the value its own text
     }
     Ok(values)
+}
+
+/// The census value `census.instructions` of a run: the instruction files its harness loaded, each
+/// as `{path, scope}` with scope `user` or `project`, in the order the harness loaded them. A run
+/// whose harness showed no loaded file records none: the value is unrecorded, never an empty list.
+///
+/// # Errors
+/// [`CensusError::Value`] when the value cannot be built.
+pub fn census_instructions(loaded: &[LoadedFile]) -> Result<Option<MeasuredValue>, CensusError> {
+    if loaded.is_empty() {
+        return Ok(None);
+    }
+    let value = serde_json::to_value(loaded).map_err(|error| CensusError::Value {
+        detail: error.to_string(), // BORROW: .to_string() gives owned text
+    })?;
+    measured("census.instructions", value).map(Some)
 }

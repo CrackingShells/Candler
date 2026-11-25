@@ -9,10 +9,13 @@
 
 use std::str::FromStr as _;
 
+use candler_harness::agent_config::{hooks, instructions};
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{
-    AgentSetting, Answer, Cell, EffortLevel, PermissionMode, PreparedFile,
+    AgentSetting, Answer, Cell, EffortLevel, InstructionScope, OPENCODE, PermissionMode,
+    PreparedFile,
 };
+use candler_schemas::agent_config::OpenCodeHooks;
 use candler_schemas::execution::paths::{
     MCP, MODEL_EFFORT, MODEL_ID, TOOLS_ALLOWED, TOOLS_DISALLOWED,
 };
@@ -192,6 +195,15 @@ pub(crate) const fn answer(setting: AgentSetting) -> Answer {
         },
         AgentSetting::SessionMode => Answer::Refused {
             reason: "OpenCode runs no session: its trace comes from the export after the run",
+        },
+        AgentSetting::Instructions(InstructionScope::Global) => Answer::Mapped {
+            construct: "`AGENTS.md` in `opencode/` under `XDG_CONFIG_HOME`, which OpenCode loads ahead of the workspace file",
+        },
+        AgentSetting::Instructions(InstructionScope::Workspace) => Answer::Mapped {
+            construct: "`AGENTS.md` at the workspace root, mounted read-only",
+        },
+        AgentSetting::Hooks => Answer::Mapped {
+            construct: "local plugin files in `opencode/plugins/` under `XDG_CONFIG_HOME`, which OpenCode loads with no npm install",
         },
     }
 }
@@ -534,7 +546,99 @@ pub(crate) fn render_config(
     let mut text = serde_json::to_string_pretty(&Value::Object(root))
         .map_err(|error| invalid(MCP, error.to_string()))?; // BORROW: .to_string() gives owned text
     text.push('\n');
-    let path = RelPath::from_str(&format!("{config_dir}/opencode/opencode.json"))
-        .map_err(|error| invalid(MCP, error.to_string()))?; // BORROW: .to_string() gives owned text
-    Ok(PreparedFile::in_home(path, text.into_bytes(), false))
+    config_file(config_dir, "opencode.json", text.into_bytes(), MCP)
 }
+
+/// The file `name` of `OpenCode`'s config directory, written into the agent's home. `config_dir`
+/// is the home-relative directory that `XDG_CONFIG_HOME` names, and `field` is the cell field the
+/// file comes from, which a refusal names.
+fn config_file(
+    config_dir: &str,
+    name: &str,
+    contents: Vec<u8>,
+    field: &str,
+) -> Result<PreparedFile, DriverError> {
+    let path = RelPath::from_str(&format!("{config_dir}/opencode/{name}"))
+        .map_err(|error| invalid(field, error.to_string()))?; // BORROW: .to_string() gives owned text
+    Ok(PreparedFile::in_home(path, contents, false))
+}
+
+/// The instruction files of a cell: the global text as `AGENTS.md` in the config directory of the
+/// agent's home, and the workspace text as `AGENTS.md` at the workspace root, each only when the
+/// cell sets it. The workspace file is mounted read-only by the core and written by no driver, so
+/// it is the plan's workspace file.
+///
+/// # Errors
+/// [`DriverError`] when the cell's instructions cannot be used.
+pub(crate) fn render_instructions(
+    cell: &Cell<'_>,
+    config_dir: &str,
+) -> Result<(Option<PreparedFile>, Option<PreparedFile>), DriverError> {
+    let Some(found) = instructions(cell, OPENCODE)? else {
+        return Ok((None, None));
+    };
+    let global = found
+        .global
+        .get(OPENCODE)
+        .map(|text| {
+            // BORROW: .to_vec() copies the text into the file
+            config_file(
+                config_dir,
+                INSTRUCTION_FILE,
+                text.as_bytes().to_vec(),
+                "instructions.global",
+            )
+        })
+        .transpose()?;
+    let workspace = found
+        .workspace
+        .as_ref()
+        .map(|text| {
+            RelPath::from_str(INSTRUCTION_FILE)
+                // BORROW: .to_vec() copies the text into the file
+                .map(|path| PreparedFile::new(path, text.as_bytes().to_vec(), false))
+                .map_err(|error| invalid("instructions.workspace", error.to_string())) // BORROW: .to_string() gives owned text
+        })
+        .transpose()?;
+    Ok((global, workspace))
+}
+
+/// The plugin files of a cell, each under `plugins/` in the config directory of the agent's home.
+///
+/// # Errors
+/// [`DriverError`] when the cell's hooks do not fit their envelope or a path cannot be used.
+pub(crate) fn render_plugins(
+    cell: &Cell<'_>,
+    config_dir: &str,
+) -> Result<Vec<PreparedFile>, DriverError> {
+    let Some(found) = hooks::<OpenCodeHooks>(cell, OPENCODE)? else {
+        return Ok(Vec::new());
+    };
+    found
+        .plugins
+        .iter()
+        .map(|(name, text)| {
+            // BORROW: .to_vec() copies the text into the file
+            config_file(
+                config_dir,
+                &format!("plugins/{name}"),
+                text.as_bytes().to_vec(),
+                "hooks",
+            )
+        })
+        .collect()
+}
+
+/// Refuses the cell's instructions or hooks that `OpenCode` cannot take, without rendering them.
+///
+/// # Errors
+/// [`DriverError`] when a value is refused as [`render_instructions`] and [`render_plugins`] would.
+pub(crate) fn check_agent_config(cell: &Cell<'_>) -> Result<(), DriverError> {
+    instructions(cell, OPENCODE)?;
+    hooks::<OpenCodeHooks>(cell, OPENCODE)?;
+    Ok(())
+}
+
+/// The name of the instruction file `OpenCode` reads, in its config directory and at the workspace
+/// root.
+pub(crate) const INSTRUCTION_FILE: &str = "AGENTS.md";

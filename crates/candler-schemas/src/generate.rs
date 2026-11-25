@@ -70,6 +70,7 @@ pub fn generated_schemas() -> Vec<GeneratedSchema> {
         crate::raw::roots(),
         crate::trace::roots(),
         crate::servers::roots(),
+        crate::agent_config::roots(),
         crate::execution::roots(),
         crate::evaluation::roots(),
         crate::refusal::roots(),
