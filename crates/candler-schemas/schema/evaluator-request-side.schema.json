@@ -60,7 +60,7 @@
     },
     "ContextArtifact": {
       "additionalProperties": false,
-      "description": "One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.",
+      "description": "One stored file of a run that the evaluator reads: its path, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.",
       "properties": {
         "abs": {
           "description": "The absolute path of the file, valid where the evaluator runs.",
@@ -68,7 +68,7 @@
         },
         "path": {
           "$ref": "#/$defs/RelPath",
-          "description": "The path of the file relative to the run."
+          "description": "The path of the file: relative to the run's outputs for an artifact, relative to the run's `root` for the trace and the manifest."
         },
         "sha256": {
           "$ref": "#/$defs/Digest",
@@ -87,7 +87,7 @@
       "description": "One raw stream of a run: its name, the path where the evaluator reads it and its digest, written as an object with the strings `stream`, `path` and `sha256`.",
       "properties": {
         "path": {
-          "description": "The absolute path of the stream, valid where the evaluator runs.",
+          "description": "The absolute path of the stream, valid where the evaluator runs. The file is gzip-compressed JSON lines (`.jsonl.gz`).",
           "type": "string"
         },
         "sha256": {
@@ -735,7 +735,7 @@
     },
     "RunContext": {
       "additionalProperties": false,
-      "description": "What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when the run serves them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.",
+      "description": "What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when a kind of the request needs them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.",
       "properties": {
         "artifacts": {
           "description": "The artifacts of the run.",
@@ -753,7 +753,7 @@
         },
         "manifest": {
           "$ref": "#/$defs/ContextArtifact",
-          "description": "The manifest of the run, served when the kind needs it; absent otherwise."
+          "description": "The manifest of the run, served when a kind of the request needs it; absent otherwise."
         },
         "metadata": {
           "additionalProperties": false,
@@ -774,7 +774,7 @@
           "type": "object"
         },
         "raw": {
-          "description": "The raw streams of the run, served when the kind needs them; empty otherwise.",
+          "description": "The raw streams of the run, served when a kind of the request needs them; empty otherwise.",
           "items": {
             "$ref": "#/$defs/ContextRaw"
           },
@@ -797,7 +797,7 @@
         },
         "trace": {
           "$ref": "#/$defs/ContextArtifact",
-          "description": "The normalised trace, served when the kind needs it; absent otherwise."
+          "description": "The normalised trace, served when a kind of the request needs it; absent otherwise."
         }
       },
       "required": [

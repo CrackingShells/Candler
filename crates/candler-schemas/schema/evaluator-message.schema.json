@@ -74,7 +74,7 @@
     },
     "ContextArtifact": {
       "additionalProperties": false,
-      "description": "One stored file of a run that the evaluator reads: its path relative to the run, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.",
+      "description": "One stored file of a run that the evaluator reads: its path, where the evaluator reads it and its digest, written as an object with the strings `path`, `abs` and `sha256`. The artifacts, `RunContext.trace` and `RunContext.manifest` have this shape.",
       "properties": {
         "abs": {
           "description": "The absolute path of the file, valid where the evaluator runs.",
@@ -82,7 +82,7 @@
         },
         "path": {
           "$ref": "#/$defs/RelPath",
-          "description": "The path of the file relative to the run."
+          "description": "The path of the file: relative to the run's outputs for an artifact, relative to the run's `root` for the trace and the manifest."
         },
         "sha256": {
           "$ref": "#/$defs/Digest",
@@ -101,7 +101,7 @@
       "description": "One raw stream of a run: its name, the path where the evaluator reads it and its digest, written as an object with the strings `stream`, `path` and `sha256`.",
       "properties": {
         "path": {
-          "description": "The absolute path of the stream, valid where the evaluator runs.",
+          "description": "The absolute path of the stream, valid where the evaluator runs. The file is gzip-compressed JSON lines (`.jsonl.gz`).",
           "type": "string"
         },
         "sha256": {
@@ -506,10 +506,10 @@
     },
     "Needs": {
       "additionalProperties": false,
-      "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent.",
+      "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A request is served the union of the needs of the kinds it sends, and a part the run does not store refuses the request.",
       "properties": {
         "artifacts": {
-          "description": "Globs, relative to the run, of the artifacts the check reads. The artifacts are the files the run produced.",
+          "description": "Globs, relative to the run's outputs, of the artifacts the check reads. The artifacts are the files the run produced.",
           "items": {
             "type": "string"
           },
@@ -524,7 +524,7 @@
         },
         "manifest": {
           "default": false,
-          "description": "Whether the check reads the run's manifest, served as `context.manifest`. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.",
+          "description": "Whether the check reads the run's manifest, served as `context.manifest` when a kind of the request needs it. The manifest holds the factors and provenance of the run, its usage, its tool census, how it ended and the exit of its process.",
           "type": "boolean"
         },
         "metadata": {
@@ -536,7 +536,7 @@
         },
         "raw": {
           "default": false,
-          "description": "Whether the check reads the raw streams, served as `context.raw`. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep.",
+          "description": "Whether the check reads the raw streams, served as `context.raw` when a kind of the request needs it. The raw streams are the harness's frames as recorded, with everything the normalised trace does not keep, each stored as gzip-compressed JSON lines (`.jsonl.gz`).",
           "type": "boolean"
         },
         "snapshots": {
@@ -547,7 +547,7 @@
           "type": "array"
         },
         "trace": {
-          "description": "Whether the check reads the normalised trace, served as `context.trace`. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage.",
+          "description": "Whether the check reads the normalised trace, served as `context.trace` when a kind of the request needs it. The trace shows every session of the run: the messages, each tool call with its command line or its MCP `{server, tool}`, each result with its `exit`, and the usage. It holds its header alone when the reader failed or the session was silent.",
           "type": "boolean"
         }
       },
@@ -1172,7 +1172,7 @@
     },
     "RunContext": {
       "additionalProperties": false,
-      "description": "What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when the run serves them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.",
+      "description": "What an evaluator may read of one run, written as an object: the run's key and root directory, the trace and the manifest when a kind of the request needs them, the raw streams, the artifacts, the snapshots, the inputs and the metadata. Every list and the metadata are present, empty when there is nothing of that sort.",
       "properties": {
         "artifacts": {
           "description": "The artifacts of the run.",
@@ -1190,7 +1190,7 @@
         },
         "manifest": {
           "$ref": "#/$defs/ContextArtifact",
-          "description": "The manifest of the run, served when the kind needs it; absent otherwise."
+          "description": "The manifest of the run, served when a kind of the request needs it; absent otherwise."
         },
         "metadata": {
           "additionalProperties": false,
@@ -1211,7 +1211,7 @@
           "type": "object"
         },
         "raw": {
-          "description": "The raw streams of the run, served when the kind needs them; empty otherwise.",
+          "description": "The raw streams of the run, served when a kind of the request needs them; empty otherwise.",
           "items": {
             "$ref": "#/$defs/ContextRaw"
           },
@@ -1234,7 +1234,7 @@
         },
         "trace": {
           "$ref": "#/$defs/ContextArtifact",
-          "description": "The normalised trace, served when the kind needs it; absent otherwise."
+          "description": "The normalised trace, served when a kind of the request needs it; absent otherwise."
         }
       },
       "required": [
