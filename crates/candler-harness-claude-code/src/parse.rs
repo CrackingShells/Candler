@@ -344,11 +344,11 @@ fn denial_of(line: &Map<String, Value>, id: &str) -> Option<Denial> {
         .map(|kind| Denial::new(DeniedBy::Harness, Some(kind.to_owned())))
 }
 
-/// The exit a shell result reports, before the call's name is known.
+/// The exit a result reports.
 ///
-/// An error result whose first text line is `Exit code N` exited with `N`; any other error text gives none. A result that
-/// is not an error exited with 0, unless Claude Code moved the command to the background (`backgroundTaskId` or
-/// `timedOutAfterMs` in the line's `tool_use_result`) or it was interrupted, which give none.
+/// A result with a `backgroundTaskId` or `timedOutAfterMs` in the line's `tool_use_result`, or with `interrupted` true,
+/// has none. Of the others, an error result whose first text line is `Exit code N` has code `N` and any other error
+/// text has none; a non-error result with none of those flags reads as exit 0.
 fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<ExitStatus> {
     let report = line.get("tool_use_result").and_then(Value::as_object);
     let flagged = |key: &str| report.is_some_and(|report| report.contains_key(key));
@@ -373,7 +373,7 @@ fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<E
         Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => None,
     }?;
     let digits = first.lines().next()?.strip_prefix("Exit code ")?;
-    if !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
     digits
@@ -400,9 +400,12 @@ fn span_of(id: &str, ext: &mut Map<String, Value>) -> Option<SpanId> {
     )
 }
 
+/// The name of the shell tool, the only one whose result reports an exit.
+pub(crate) const SHELL_TOOL: &str = "Bash";
+
 /// The call of the tool `name` with the id `id`.
 fn tool_call(id: &str, name: &str, input: Option<&Value>) -> Draft {
-    let argv = (name == "Bash")
+    let argv = (name == SHELL_TOOL)
         .then(|| {
             input
                 .and_then(|input| input.get("command"))
