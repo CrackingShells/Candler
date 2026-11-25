@@ -1742,6 +1742,15 @@ fn opencode_census_names_the_instruction_files_of_the_first_request_with_tools()
             {"path": "/work/AGENTS.md", "scope": "project"},
         ])
     );
+    let moved =
+        String::from_utf8(bytes.clone())?.replace("/work/AGENTS.md", "/work/.xdg/config/AGENTS.md");
+    assert_eq!(
+        serde_json::to_value(driver.loaded_instructions(&stream, moved.as_bytes()))?,
+        json!([
+            {"path": "/home/agent/.xdg/config/opencode/AGENTS.md", "scope": "user"},
+            {"path": "/work/.xdg/config/AGENTS.md", "scope": "project"},
+        ])
+    );
     let other: StreamName = "stdout".parse()?;
     assert_eq!(driver.loaded_instructions(&other, &bytes), []);
     let first_line = bytes
@@ -1753,13 +1762,13 @@ fn opencode_census_names_the_instruction_files_of_the_first_request_with_tools()
 }
 
 /// Guards: the config check — the start of `opencode run` with a model that does not exist ends at
-/// the model, so output with that line is a report; a `level=WARN` line of it is a rejection
-/// whatever the exit status and the `INFO` lines; output without the line (empty, an error, a start
+/// the model, so output with that line is a report; a `level=WARN` line, or a `level=ERROR` line other than the
+/// model's, is a rejection whatever the exit status and the `INFO` lines; output without the line (empty, an error, a start
 /// that failed before the model) is a rejection carrying that output, so a check that never ran
 /// never passes. The command keeps the plan's configuration home, moves the data home and the
 /// database under a throwaway directory, and runs in the workspace.
 /// Oracle: the recorded outputs of `OpenCode` 2.2.7 in `fixtures/check`.
-/// Bite: reject on any `ERROR` line, accept empty output, or leave the database at the run's.
+/// Bite: reject the model's own `ERROR` line, pass another `ERROR` line, accept empty output, or leave the database at the run's.
 #[test]
 fn opencode_config_check_reads_the_warnings_of_a_start_that_reached_the_model() -> Res<()> {
     let driver = OpenCodeDriver::new();
@@ -1804,6 +1813,15 @@ fn opencode_config_check_reads_the_warnings_of_a_start_that_reached_the_model() 
     };
     assert_eq!(output.lines().count(), 1, "{output}");
     assert!(output.contains("Plugin must export a default definition"));
+    let valid = String::from_utf8(recorded("valid.txt")?)?;
+    let with_error = format!(
+        "{valid}timestamp=2026-11-25T08:57:01.050Z level=ERROR run=8c7beda5 message=\"Failed to load config\" role=server\n"
+    );
+    let CheckVerdict::Rejected { output } = driver.read_config_check(with_error.as_bytes()) else {
+        return Err("an ERROR line other than the model's is not rejected".into());
+    };
+    assert_eq!(output.lines().count(), 1, "{output}");
+    assert!(output.contains("Failed to load config"));
     let no_model = b"timestamp=2026-11-25T08:56:41.603Z level=INFO message=\"cli starting\"\n";
     for not_a_report in [&b""[..], b"error: could not reach the server\n", no_model] {
         assert_eq!(

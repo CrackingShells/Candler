@@ -34,6 +34,9 @@ const GATEWAY_BASE_URL: &str = "CANDLER_GATEWAY_URL";
 /// The variable that holds the gateway's token; the configuration refers to it.
 const GATEWAY_AUTH_TOKEN: &str = "CANDLER_GATEWAY_TOKEN";
 
+/// The agent's home inside the container, which the state paths are relative to.
+const AGENT_HOME: &str = "/home/agent";
+
 /// The state directories and the database file, relative to the agent's home.
 const STATE: [(&str, StateKind, &str); 5] = [
     ("XDG_DATA_HOME", StateKind::Dir, ".xdg/data"),
@@ -77,8 +80,10 @@ fn root_end(sessions: &[Session]) -> Option<&EndedBy> {
 
 /// The instruction files the starting context of the first request that offers tools names, in the
 /// order the system text holds them, each once, as `OpenCode` printed their paths. `bytes` is the
-/// stream `stream`; any other stream lists nothing. A file under the config directory of the agent's
-/// home is the user's own; any other is the workspace's.
+/// stream `stream`; any other stream lists nothing. A file under the `XDG_CONFIG_HOME` the plan sets
+/// is the user's own; any other is the workspace's. The census reads `OpenCode`'s `Instructions
+/// from:` lines, which `OpenCode` does not escape, so a line of that shape inside an instruction
+/// text counts too.
 fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
     if stream.as_str() != GATEWAY_STREAM {
         return Vec::new();
@@ -94,14 +99,17 @@ fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
     let Some((_, context)) = first else {
         return Vec::new();
     };
-    let own = format!("/{}/", OpenCodeDriver::state_subpath("XDG_CONFIG_HOME"));
+    let own = format!(
+        "{AGENT_HOME}/{}/",
+        OpenCodeDriver::state_subpath("XDG_CONFIG_HOME")
+    );
     let mut files: Vec<LoadedFile> = Vec::new();
     for path in context
         .system
         .lines()
         .filter_map(|line| line.strip_prefix(INSTRUCTIONS_MARKER))
     {
-        let scope = if path.contains(own.as_str()) {
+        let scope = if path.starts_with(own.as_str()) {
             LoadedScope::User
         } else {
             LoadedScope::Project
@@ -112,6 +120,12 @@ fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
         }
     }
     files
+}
+
+/// The line that marks a check start that reached the model: the session drain failing on the model
+/// that does not exist.
+fn is_drain(line: &str) -> bool {
+    line.contains("Failed to drain Session") && line.contains("ModelUnavailableError")
 }
 
 /// The `OpenCode` V2 driver.
@@ -226,7 +240,7 @@ impl HarnessDriver for OpenCodeDriver {
                 how: "the tools the gateway offered the model in its first request",
             },
             DriverFact::ConfigCheck => Answer::Mapped {
-                construct: "`opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` lines name a rejected `opencode.json` or a plugin that failed to load",
+                construct: "`opencode run --standalone --print-logs -m probe/none x` in the workspace, whose `level=WARN` and `level=ERROR` lines name a rejected `opencode.json` or a plugin that failed to load",
             },
             DriverFact::UnsetPermissionMode => Answer::Candler {
                 how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
@@ -268,23 +282,23 @@ impl HarnessDriver for OpenCodeDriver {
         // The exit status is 1 whatever the start found. Output is a report only when it holds the
         // line that says the start reached the model; without it the check never got that far
         // (empty output, an error, a changed format), and never passes.
-        let reached_model = text.lines().any(|line| {
-            line.contains("Failed to drain Session") && line.contains("ModelUnavailableError")
-        });
+        let reached_model = text.lines().any(is_drain);
         if !reached_model {
             return CheckVerdict::Rejected {
                 output: text.into_owned(),
             };
         }
-        let warnings: Vec<&str> = text
+        let findings: Vec<&str> = text
             .lines()
-            .filter(|line| line.contains("level=WARN"))
+            .filter(|line| {
+                line.contains("level=WARN") || (line.contains("level=ERROR") && !is_drain(line))
+            })
             .collect();
-        if warnings.is_empty() {
+        if findings.is_empty() {
             return CheckVerdict::Clean;
         }
         CheckVerdict::Rejected {
-            output: warnings.join("\n"),
+            output: findings.join("\n"),
         }
     }
 
