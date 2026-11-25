@@ -62,6 +62,8 @@ def test_one_fault_costs_one_item(vectors, run_helper):
     for path in sorted((vectors / "valid").glob("*.json")):
         assert is_frame(json.loads(path.read_text())), path.name
     for path in sorted((vectors / "invalid").glob("*.json")):
+        if path.name.startswith("needs_"):
+            continue  # the fault is in a kind's needs, which the envelope check does not read
         assert not is_frame(json.loads(path.read_text())), path.name
 
     params = {

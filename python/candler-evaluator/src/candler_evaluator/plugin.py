@@ -114,7 +114,7 @@ class RunContext:
             scratch=Path(scratch),
             run=context["run"],
             raw=tuple(context["raw"]),
-            trace=None if trace is None else Path(trace),
+            trace=None if trace is None else Path(trace["abs"]),
             artifact_files=files,
             snapshots=tuple(context.get("snapshots", [])),
             inputs=tuple(context["inputs"]),
