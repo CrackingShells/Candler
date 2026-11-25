@@ -57,3 +57,10 @@ Existing digest rows: `context_digest.toml`, `context_digest_runs.toml` and the 
 - The generated Python `Needs.raw` and `Needs.manifest` are typed `bool | None` with default `False`, so the helper's model takes `null` where the Rust reader and the schema (`type: boolean`) refuse it. No vector tests it.
 - The helper's new API (typed trace, manifest, raw digests) is `helper_context`'s; here `RunContext.from_wire` takes the trace's `abs` and nothing else changed by hand.
 - Spend was not measured from transcripts.
+
+## Later changes
+
+- The `context_start` sentence of the `Needs.trace` doc was dropped by the coordinator's ruling `c33c6b82`: whichever of M6d and M6.5 lands second writes it. The schemas and models were re-blessed.
+- The exit test doc has its `Bite:` line; the digest test doc cites §Evaluator protocol (Digests of a request) and picks its served case by content; `ContextArtifact`'s doc says the trace and the manifest have its shape.
+- `__design__/architecture.md` §Evaluator protocol states the `raw` and `manifest` needs, the object shape of `trace`, `manifest` and `raw[]`, and the served-part keys of `context_digest`; §Normalised trace model lists `exit?`.
+- Commits since the rulings: `fix(schemas): read an unknown key in needs as its siblings do`, `fix(evaluator-helper): regenerate the models for the needs description`, `test(schemas): state the bites and pick the served case by content`, `fix(schemas): describe only what the wire carries in the needs docs`, `fix(evaluator-helper): regenerate the models for the needs docs`, `docs(design): state the served parts of the run context and its digest`.
