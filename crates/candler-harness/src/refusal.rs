@@ -22,12 +22,13 @@ fn no_path<E>(_error: &E) -> Option<String> {
 fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
+        DriverError::MissingValue { path } => {
+            Some(pointer_of(["fixed", path.to_string().as_str()]))
+        } // BORROW: .to_string() gives owned text
         DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
         DriverError::InvalidValue { path, .. } => Some(pointer_of(path.segments())),
         DriverError::AmbiguousServers { .. } => Some("/mcp/servers".to_owned()), // BORROW: .to_owned() makes the owned pointer
-        DriverError::MissingValue { .. }
-        | DriverError::VersionOutput { .. }
-        | DriverError::Record { .. } => None,
+        DriverError::VersionOutput { .. } | DriverError::Record { .. } => None,
     }
 }
 
@@ -36,8 +37,8 @@ refusal_table! {
     MissingValue { .. } => row(
         "experiment.cell_value_missing",
         Side::Experiment,
-        "A cell lacks a value that the harness driver needs.",
-        "-",
+        "A cell lacks a value that the harness driver needs, such as a hooks table that has no entry for the cell's harness.",
+        "The key of `[fixed]` that holds the value, such as `/fixed/hooks`.",
     ),
     InvalidValue { .. } => row(
         "experiment.cell_value_invalid",

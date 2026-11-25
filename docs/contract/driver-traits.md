@@ -61,7 +61,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | Code | When | Path at fault | Side to fix |
 |---|---|---|---|
 | `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | The field of the value, such as `/mcp/servers/fs/command`. | experiment |
-| `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
+| `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs, such as a hooks table that has no entry for the cell's harness. | The key of `[fixed]` that holds the value, such as `/fixed/hooks`. | experiment |
 | `experiment.mcp_server_prefix_ambiguous` | Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one. | The table of servers, `/mcp/servers`. | experiment |
 | `experiment.setting_unsupported` | The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped. | The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`. | experiment |
 | `harness.session_record_unreadable` | A session record that the harness wrote, such as a hook payload or a stream event, cannot be read by the driver's tracker. | - | environment |

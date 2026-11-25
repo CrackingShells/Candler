@@ -300,6 +300,7 @@ async fn planned(
         } else {
             Arc::new(OpenCodeDriver::new())
         }),
+        harnesses: Vec::new(),
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
     let spec = JobSpec {

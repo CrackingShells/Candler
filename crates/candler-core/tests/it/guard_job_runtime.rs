@@ -375,6 +375,7 @@ fn reap_child() {
         gateway: None,
         job: own.clone(), // BORROW: the runtime owns its job id
         driver: Arc::new(QuietDriver),
+        harnesses: Vec::new(),
         cells: BTreeMap::new(),
         eval_infra: EvalInfra::default(),
     };

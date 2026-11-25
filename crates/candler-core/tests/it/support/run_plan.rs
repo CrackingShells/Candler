@@ -228,6 +228,7 @@ pub fn plan_ctx(store: &Store, lock: &Path, facts: &Facts) -> PlanCtx {
             .map(|name| name.parse::<SecretName>().expect("a secret name"))
             .collect::<BTreeSet<_>>(),
         driver: None,
+        harnesses: Vec::new(),
     }
 }
 

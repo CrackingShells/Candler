@@ -7,14 +7,15 @@ use candler_harness::mcp;
 use candler_harness::spec::{AgentSetting, Answer, Cell, EffortLevel, PermissionMode};
 use candler_schemas::execution::paths::{
     BUDGET_PER_RUN_MAX_COST_USD, BUDGET_PER_RUN_TURNS, BUDGET_PER_RUN_WALL_S, ENV, ENVIRONMENTS,
-    HARNESS, INPUTS, ISOLATION_BUILD_CONTEXT, ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK,
-    ISOLATION_BUILD_PLUGIN, ISOLATION_BUILD_PRUNE, ISOLATION_BUILD_REQUIREMENTS, ISOLATION_EGRESS,
-    ISOLATION_ENV_LOCK, ISOLATION_IMAGE, ISOLATION_LIMITS, ISOLATION_LIMITS_CPUS,
-    ISOLATION_LIMITS_MEMORY, ISOLATION_LIMITS_PIDS, ISOLATION_NETWORK, ISOLATION_RECORD_PACKAGES,
-    MCP, MODEL_EFFORT, MODEL_ENDPOINT, MODEL_ID, MODEL_TOKEN_SECRET, PERMISSION_MODE, PLUGINS_DIRS,
-    PROMPT_TEMPLATE, PROMPT_VALUES, REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT,
-    RUNNER_IDLE_S, RUNNER_MODE, SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT, TOOLS_ALLOWED,
-    TOOLS_DISALLOWED, TREATMENT, TREATMENT_SOURCE_PREFIX,
+    HARNESS, HOOKS, INPUTS, INSTRUCTIONS_GLOBAL, INSTRUCTIONS_WORKSPACE, ISOLATION_BUILD_CONTEXT,
+    ISOLATION_BUILD_DOCKERFILE, ISOLATION_BUILD_LOCK, ISOLATION_BUILD_PLUGIN,
+    ISOLATION_BUILD_PRUNE, ISOLATION_BUILD_REQUIREMENTS, ISOLATION_EGRESS, ISOLATION_ENV_LOCK,
+    ISOLATION_IMAGE, ISOLATION_LIMITS, ISOLATION_LIMITS_CPUS, ISOLATION_LIMITS_MEMORY,
+    ISOLATION_LIMITS_PIDS, ISOLATION_NETWORK, ISOLATION_RECORD_PACKAGES, MCP, MODEL_EFFORT,
+    MODEL_ENDPOINT, MODEL_ID, MODEL_TOKEN_SECRET, PERMISSION_MODE, PLUGINS_DIRS, PROMPT_TEMPLATE,
+    PROMPT_VALUES, REQUEST_HARNESS, REQUEST_INPUTS, REQUEST_TREATMENT, RUNNER_IDLE_S, RUNNER_MODE,
+    SLOTS_COUNT, SLOTS_EVALUATORS, STORE_ROOT, TOOLS_ALLOWED, TOOLS_DISALLOWED, TREATMENT,
+    TREATMENT_SOURCE_PREFIX,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::servers::McpServerKind;
@@ -152,7 +153,7 @@ const fn key(path: &'static str, kind: Kind, file: ConfigFile, meaning: &'static
 }
 
 /// Every path the configuration surface names.
-pub const CONFIGURATION_PATHS: [PathRow; 48] = [
+pub const CONFIGURATION_PATHS: [PathRow; 51] = [
     row(
         MODEL_ID,
         Kind::Leaf,
@@ -212,6 +213,27 @@ pub const CONFIGURATION_PATHS: [PathRow; 48] = [
             AgentSetting::McpName,
         ]),
         "The MCP servers of a run; the names below are free.",
+    ),
+    row(
+        INSTRUCTIONS_GLOBAL,
+        Kind::Subtree,
+        Class::Value,
+        Reach::CandlerOnly,
+        "The global instruction text of each harness: a table of harness id (written with `_` for `-`) to text.",
+    ),
+    row(
+        INSTRUCTIONS_WORKSPACE,
+        Kind::Leaf,
+        Class::Value,
+        Reach::CandlerOnly,
+        "The instruction text at the root of the workspace.",
+    ),
+    row(
+        HOOKS,
+        Kind::Subtree,
+        Class::Value,
+        Reach::CandlerOnly,
+        "The hooks of each harness: a table of harness id (written with `_` for `-`) to its `settings` or `files`, or its `plugins`.",
     ),
     row(
         PERMISSION_MODE,

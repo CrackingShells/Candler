@@ -155,6 +155,7 @@ exit 1
             services: JobServices {
                 // TRAIT_OBJECT: the driver is the harness's real one, which the body never calls
                 driver: Arc::new(ClaudeCodeDriver::new()),
+                harnesses: Vec::new(),
                 // TRAIT_OBJECT: the tree is a stub that holds no file
                 eval_infra: EvalInfra::default(),
             },

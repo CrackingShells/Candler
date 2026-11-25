@@ -309,7 +309,13 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
     let Some(resolution) = levels.first().cloned() else {
         return Ok(Exit::Success);
     };
-    check_cells(&file, levels.as_slice(), driver.as_ref()).map_err(CliError::refused_by)?; // BORROW: explicit .as_slice()
+    check_cells(
+        &file,
+        levels.as_slice(),
+        driver.as_ref(),
+        Registry::builtin().names().as_slice(),
+    )
+    .map_err(CliError::refused_by)?; // BORROW: explicit .as_slice()
     if text {
         for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;

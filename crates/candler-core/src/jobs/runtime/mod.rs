@@ -48,6 +48,8 @@ pub struct JobServices {
     // TRAIT_OBJECT: the harness's driver, or a recording fake in tests
     /// What the runner needs from the harness, as data.
     pub driver: Arc<dyn HarnessDriver>,
+    /// The ids of the registered harnesses.
+    pub harnesses: Vec<String>,
     /// Which build of the evaluation infrastructure runs the job.
     pub eval_infra: EvalInfra,
 }
