@@ -243,9 +243,8 @@ pub trait HarnessDriver: Send + Sync {
         None
     }
 
-    /// The instruction files the harness loaded, as `stream` shows them: `bytes` is the stream
-    /// the core collected under `stream` after the run, or the gateway's record of it. A driver
-    /// reads the streams it knows and lists nothing for any other. An empty list means no file was
+    /// The instruction files the harness loaded, as `stream` shows them: `bytes` is that
+    /// stream as the core archived it for the run. A driver reads the streams it knows and lists nothing for any other. An empty list means no file was
     /// observed, and the census records nothing.
     fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
         let _ = (stream, bytes);

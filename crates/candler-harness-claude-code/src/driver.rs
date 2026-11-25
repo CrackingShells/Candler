@@ -464,6 +464,7 @@ impl HarnessDriver for ClaudeCodeDriver {
                 .into_iter()
                 .map(|pattern| CollectSpec::file(format!("!{pattern}"))),
         );
+        // EXPLICIT: the log's path and stream name are constants that parse; were they refused, the log would go uncollected
         specs.extend(session::log_collect().ok());
         specs
     }

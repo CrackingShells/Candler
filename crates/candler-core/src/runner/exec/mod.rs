@@ -838,7 +838,10 @@ async fn drive(
     } else {
         census(observed.init.as_ref().or(gateway_init.as_ref())).unwrap_or_default()
     };
-    measured.extend(census_instructions(&loaded).ok().flatten());
+    match census_instructions(&loaded) {
+        Ok(value) => measured.extend(value),
+        Err(_) => collect_ok = false,
+    }
 
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway
