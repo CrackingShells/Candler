@@ -235,6 +235,58 @@
       "Write"
     ]
   },
+  "streams/shell_exit_stderr_timeout": {
+    "census.init_tools": [
+      "Bash",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "DesignSync",
+      "Edit",
+      "EnterWorktree",
+      "ExitWorktree",
+      "ListAgents",
+      "Monitor",
+      "NotebookEdit",
+      "Read",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "Task",
+      "TaskStop",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ],
+    "census.tools": [
+      "Task",
+      "Bash",
+      "CronCreate",
+      "CronDelete",
+      "CronList",
+      "DesignSync",
+      "Edit",
+      "EnterWorktree",
+      "ExitWorktree",
+      "ListAgents",
+      "Monitor",
+      "NotebookEdit",
+      "Read",
+      "ReportFindings",
+      "ScheduleWakeup",
+      "SendMessage",
+      "Skill",
+      "TaskStop",
+      "ToolSearch",
+      "WebFetch",
+      "WebSearch",
+      "Workflow",
+      "Write"
+    ]
+  },
   "streams/subagent_denials": {
     "census.init_tools": [
       "Bash",
