@@ -242,6 +242,12 @@ pub fn mounted_inputs(
 /// Makes the mount point of each input in the workspace, mounts each input of the cell read-only
 /// there from its blob in `store`, and checks the whole mount list again.
 ///
+/// The function assumes `workspace_dir` is a directory the caller has just made: empty, with no
+/// link in it, and no other writer. It makes directories and files below it without checking for
+/// links, and refuses to replace a file, so a link already in place fails the call rather than
+/// redirecting it. When a later input is refused, the mount points made for the earlier ones stay
+/// in `workspace_dir` and the mounts already added stay in `container`: the caller discards both.
+///
 /// # Errors
 /// [`IsolationError::Plan`] when an input's path leaves the workspace, its mount point cannot be
 /// made, or the mount list is refused.
