@@ -12,6 +12,7 @@ use candler_harness::reader::{FrameIn, TraceReader};
 use candler_harness::spec::Confidence;
 use candler_harness_claude_code::{ClaudeCodeReader, READER};
 use candler_schemas::primitives::Digest;
+use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
 use candler_schemas::trace::{
     Cap, EndedBy, EventKind, RawFileRef, Session, SessionEvent, ToolOrigin, TraceFile, TraceHeader,
@@ -266,6 +267,99 @@ fn stream_with(result: Option<&str>) -> Vec<Vec<u8>> {
     lines
 }
 
+/// A result's exit as `expected.toml` writes it: session, call id, the name of the call, and the exit code when there is one.
+type ExitRow = (String, String, String, Option<i32>);
+
+fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow>> {
+    let Some(rows) = stream.expected.get("exits") else {
+        return Ok(Vec::new());
+    };
+    let mut out = Vec::new();
+    for entry in rows.as_array().ok_or("`exits` is not a list")? {
+        let entry = table(entry, "an exit row")?;
+        let code = entry
+            .get("code")
+            .map(|code| -> Res<i32> { Ok(i32::try_from(code.as_integer().ok_or("code")?)?) })
+            .transpose()?;
+        out.push((
+            text(entry, "session")?.to_owned(),     // BORROW: owned copy
+            text(entry, "tool_use_id")?.to_owned(), // BORROW: owned copy
+            text(entry, "tool")?.to_owned(),        // BORROW: owned copy
+            code,
+        ));
+    }
+    Ok(out)
+}
+
+/// Checks each row against the reader's result of that call in that session: the call has the name the row gives, and the result has the exit code the row gives, or none.
+fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
+    for (session, id, tool, want) in rows {
+        let held: Vec<&SessionEvent> = output
+            .events
+            .iter()
+            .filter(|record| {
+                record.session.as_str() == session
+                    && record
+                        .event
+                        .span
+                        .as_ref()
+                        .is_some_and(|span| span.as_str() == id)
+            })
+            .collect();
+        let called: Vec<&str> = held
+            .iter()
+            .filter_map(|record| match &record.event.kind {
+                EventKind::ToolCall { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            called,
+            [tool.as_str()],
+            "{name}: the call {id} in {session}"
+        );
+        let mut results = Vec::new();
+        for record in &held {
+            if let EventKind::ToolResult { exit, .. } = &record.event.kind {
+                results.push(match exit {
+                    None => None,
+                    Some(ExitStatus::Code { code }) => Some(*code),
+                    Some(other) => return Err(format!("{name}: {id}: unexpected {other:?}").into()),
+                });
+            }
+        }
+        assert_eq!(
+            results,
+            [*want],
+            "{name}: exit of the result of {tool} call {id} in {session}"
+        );
+    }
+    Ok(())
+}
+
+/// Lines in which one call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`: the result in each session gets the exit of its own call.
+fn shared_id_stream() -> Vec<Vec<u8>> {
+    let bash = r#"{"type":"tool_use","id":"X","name":"Bash","input":{"command":"true"}}"#;
+    let read = r#"{"type":"tool_use","id":"X","name":"Read","input":{}}"#;
+    let agent = r#"{"type":"tool_use","id":"A","name":"Agent","input":{}}"#;
+    let result =
+        |text: &str| format!(r#"{{"type":"tool_result","tool_use_id":"X","content":"{text}"}}"#);
+    let line = |kind: &str, parent: &str, blocks: &[&str]| {
+        format!(
+            r#"{{"type":"{kind}","session_id":"S",{parent}"message":{{"role":"{kind}","content":[{}]}}}}"#,
+            blocks.join(",")
+        )
+        .into_bytes()
+    };
+    let child = r#""parent_tool_use_id":"A","#;
+    let mut lines = stream_with(None);
+    lines.push(line("assistant", "", &[agent, read]));
+    lines.push(line("assistant", child, &[bash]));
+    lines.push(line("user", "", &[&result("file text")]));
+    lines.push(line("user", child, &[&result("")]));
+    lines
+}
+
 /// Guards: Reader correctness — sessions, subagent ids, denials by the harness, MCP origins, unreadable lines and `ended_by` of each stream, and `ended_by` for each result shape, are what the raw lines say. Oracle: the hand-written `expected.toml` of each stream, written from `jq` over its lines, and literal result lines with the ends R01 §Ends gives them.
 #[test]
 fn expected_facts() -> Res<()> {
@@ -312,6 +406,7 @@ fn expected_facts() -> Res<()> {
             expected_denials(&stream)?,
             "{name}: denials (call, reason, by, session)"
         );
+        check_exits(name, &output, &expected_exits(&stream)?)?;
         for row in expected_frame_sessions(&stream)? {
             let (frame, session) = row;
             let holders: BTreeSet<String> = output
@@ -424,6 +519,12 @@ fn expected_facts() -> Res<()> {
             .clone(); // BORROW: owned end to compare
         assert_eq!(got, want, "result line {result:?}");
     }
+    let shared = run(&shared_id_stream(), false)?;
+    let rows: [ExitRow; 2] = [
+        ("S".to_owned(), "X".to_owned(), "Read".to_owned(), None), // BORROW: owned text
+        ("S/A".to_owned(), "X".to_owned(), "Bash".to_owned(), Some(0)), // BORROW: owned text
+    ];
+    check_exits("shared call id", &shared, &rows)?;
     Ok(())
 }
 

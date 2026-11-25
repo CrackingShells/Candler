@@ -18,3 +18,32 @@ tool_use_id = "toolu_01WKwgRvHAbP3sibb1dUXTZZ"
 reason = "permission-rule"
 by = "harness"
 session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_015gkhs4y7iR3iV8t33NRRHV"
+session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_01WKwgRvHAbP3sibb1dUXTZZ"
+session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_01KMtSUihaKuixTGZ4Qyopdt"
+session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01YAW9TLc1C8jLZq27hygjyQ"
+session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01LEMjeuw9GcVxvvE4aUVkL4"
+session = "4f403f2d-a74d-41fa-8a88-4fb8a38f1b18"
+tool = "Write"

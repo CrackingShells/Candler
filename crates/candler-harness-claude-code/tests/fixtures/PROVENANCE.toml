@@ -28,7 +28,7 @@ synthetic = false
 [[files]]
 path = "streams/api_error/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "8bb2fc851a086aded4bd73382f8044d49e9aef88ca11c162d566689bd2d01cba"
+sha256 = "005e7f04f8474888ebda65fe1265e44d532f50a236b62e82614dc3da743565a7"
 synthetic = false
 
 [[files]]
@@ -46,7 +46,7 @@ synthetic = false
 [[files]]
 path = "streams/mini_clean/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "dc14977220bb9e2067b7ab6033ab19b26763b92d6f6e1e94e3b341b86885534e"
+sha256 = "e8ff405324bc903993b300df676168d81cd752ee0d9e0e2cdc240b2c2af0d53e"
 synthetic = false
 
 [[files]]
@@ -64,7 +64,7 @@ synthetic = false
 [[files]]
 path = "streams/mini_incomplete/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "e1e7c3c8734bde2e6727f33b204a216a1c125afc6f66c1ce170f4ab27d2e0e81"
+sha256 = "17735b82b702712c3ce044ea22554d888ec02215ce02fc4892a6bea9a6264fb2"
 synthetic = false
 
 [[files]]
@@ -82,7 +82,7 @@ synthetic = false
 [[files]]
 path = "streams/mini_zero_mappings/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "ab7d6be178ce4b41c6126b956290212b89d5ee3e6b19a32c1653aea5a1a031dc"
+sha256 = "8442d42c7c8e1ad55e37ff97bb46ece34fe9a7f4df248f8c02c7b568ffc19159"
 synthetic = false
 
 [[files]]
@@ -100,7 +100,7 @@ synthetic = false
 [[files]]
 path = "streams/multi_init/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "cd25036a0bada36b0bacf511f8f240ef948d3151d7e252e275a53d63e1750fe0"
+sha256 = "d59e95184b8728ccb3b55bc6d2de8539e31bd4c70f873c863eaefeeede459c5f"
 synthetic = false
 
 [[files]]
@@ -118,7 +118,7 @@ synthetic = false
 [[files]]
 path = "streams/subagent_denials/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "e534d3795d9fe68c7fc60fb8edb5b6b85ceaef0f8a08df7c5165fc94c6aaf48f"
+sha256 = "6bf85daceff63092725cfeec3bd72542b56aabce8a6af0cabf99eba6f9f61f6b"
 synthetic = false
 
 [[files]]
@@ -154,7 +154,7 @@ synthetic = true
 [[files]]
 path = "streams/synthetic_mcp/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "102d9b72911088de7fd0304303994a00756883b0e3666ca6650f32074d8ca1d4"
+sha256 = "b12e3bef2407cf07560bcb51870340a10b63a6a081b380ff2cdce84e40b450f0"
 synthetic = true
 
 [[files]]
@@ -264,7 +264,7 @@ synthetic = false
 [[files]]
 path = "streams/shell_exit_stderr_timeout/expected.toml"
 source = "hand-written from jq over the raw lines"
-sha256 = "fac1f66effd975731684ab68d59c8fb1b42b76e7f0a4c2b359aa7e435a7b8e55"
+sha256 = "e9352a677f3bd42c37073c3022808b7e8e4cdf1dfacde7797a2a8a4af4ea09d5"
 synthetic = false
 
 [[files]]

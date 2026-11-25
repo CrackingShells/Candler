@@ -30,3 +30,53 @@ tool_use_id = "toolu_01KsbY7G8xTcnAyngvjNgG6t"
 reason = "permission-rule"
 by = "harness"
 session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_01NmVTy7CtJXWmkzZhfECk2M"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_019oLKsnNZZYDgoAFCpGxN9k"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Bash"
+code = 127
+
+[[exits]]
+tool_use_id = "toolu_01Thg1E955WUNoMx7KGjFQ3t"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_01DvCBeLjPX4jbFuFuTJRphU"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Edit"
+
+[[exits]]
+tool_use_id = "toolu_01MKnAPNMeokYonYMk9PA115"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01N9czBcd4cbbMRYu2CnsyDc"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "TaskCreate"
+
+[[exits]]
+tool_use_id = "toolu_013xWN3NaxDT4gBMJA6pDiJg"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "TaskUpdate"
+
+[[exits]]
+tool_use_id = "toolu_0189zxXdLX3QFYWQi5TfbUZo"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "ToolSearch"
+
+[[exits]]
+tool_use_id = "toolu_01VQxozwLuG4UNucsmP3EBzG"
+session = "50b18959-0cb5-4deb-b336-1c8c57970383"
+tool = "Write"
