@@ -257,7 +257,10 @@ ships in the same release but no gate on that path depends on it.
 
 - Claude Code hook denials (`confine_hook`) read as `DeniedBy::Harness`; `user-rejected` too.
 - OpenCode `permission.rejected` read as a plain error, not a denial.
-- Timeout as a distinct shell end, if a consumer asks (no harness evidence yet).
+- Timeout as a distinct shell end, if a consumer asks. The probe recorded the evidence: Claude Code moves a
+  timed-out command to the background (`backgroundTaskId`, `timedOutAfterMs`, `is_error: false`); OpenCode
+  kills it and writes `signal: "SIGTERM"`, `timeout: true` and no `exit`. Mapping that signal name into
+  `ExitStatus`'s integer `signal` waits for the same consumer.
 
 ## Done-criteria
 

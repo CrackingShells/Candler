@@ -1,14 +1,14 @@
 # OpenCode exit
 
-**Goal**: A `shell` call in an OpenCode trace carries the exit status OpenCode reported: `exit: {kind: code, code: N}` from the tool part's `state.metadata.exit` (the rule for a nonzero exit is the one the probe recorded), and no `exit` when the part's state is an error (`aborted`, `permission.rejected`, …), when `metadata.exit` is missing, or for any tool that is not `shell` (critical path)
+**Goal**: A `shell` call in an OpenCode trace carries the exit status OpenCode reported: `exit: {kind: code, code: N}` from the tool part's `state.metadata.exit` (the rule for a nonzero exit is the one the probe recorded), and no `exit` when the part's state is an error (`aborted`, `permission.rejected`, …), when `metadata.exit` is missing whatever `state.status` says (the probe's timed-out call is `completed` with `signal: "SIGTERM"`, `timeout: true` and no `exit`), or for any tool that is not `shell`. The plan rules `exit` absent on a timeout, so the reader does not map the harness's signal name into `ExitStatus`'s integer `signal` (critical path)
 **Estimate**: Sonnet, $5, cap $10. At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use the target dir the campaign README names; the leaf removes it at its merge.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/run-context HEAD` succeeds
 - [ ] `[nl]` `../schema_exit_needs.md` and `../probe_shell_shapes.md` are `done`; the probe report's answers to questions (1) and (2) are read before Step 1. If the probe found that OpenCode writes a nonzero exit somewhere other than `state.metadata.exit`, the rule follows the probe and the report says so
 **Success Gates**:
 - ⬜ The export reader's table `opencode_export_reader_covers_trace_errors_cache_cost_and_child_sessions` gains an `exit` column, written from `jq` over the exports and never from the reader's output. Its rows cover: a completed `shell` call with exit 0 (`completed_o1`); a completed call with a nonzero exit, a stderr-only nonzero exit and a timed-out call (the probe's fixture); an aborted call (`sigint_mid_tool` or `interrupt_api`); a rejected permission (`oc_permission_ask`); a tool that is not `shell`. On the base every row with a code fails
-- ⬜ Each of two bites turns the table red, and the report records the failing message: (a) `metadata.exit` read only on error states; (b) a missing `metadata` taken as exit 0
-- ⬜ `export.rs` never infers a signal from a code and never reads an exit from the tool's text output
+- ⬜ Each of two bites turns the table red, and the report records the failing message: (a) `metadata.exit` read only on error states; (b) a missing `metadata.exit` taken as exit 0, so the probe's timed-out row reads code 0
+- ⬜ `export.rs` never infers a signal from a code, never reads an exit from the tool's text output (OpenCode renders `Exit code: 143 (SIGTERM)` there for the model), and reads no `signal` or `timeout` key
 - `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass with the target dir the campaign README names; `container-e2e` is green on the pull request
 **References**: [plan §The exit-status field, §Test plan](../../../__reports__/run-context/00-plan_run_context_v0.md); `__reports__/run-context/leaves/probe_shell_shapes_v0.md`. Code:
 - `crates/candler-harness-opencode/src/export.rs`: `tool_drafts`;
