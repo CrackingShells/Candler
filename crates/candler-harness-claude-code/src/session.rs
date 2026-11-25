@@ -43,14 +43,15 @@ use crate::driver::{Launch, argv, invalid};
 
 /// The home directory the core gives every agent container.
 const AGENT_HOME: &str = "/home/agent";
-/// The settings file that installs the hooks, relative to the agent's home.
+/// The settings file that installs the hooks, relative to the agent's home. It lies outside
+/// `.claude/`, which the `user` setting source reads.
 const SETTINGS: &str = ".candler/settings.json";
 /// The file the hooks append to, relative to the agent's home.
 const HOOK_LOG: &str = ".candler/hooks.jsonl";
 /// The name of the raw stream that archives the hook log.
 const HOOK_STREAM: &str = "hooks";
 /// The hook events the driver installs.
-const HOOK_EVENTS: [&str; 2] = ["Stop", "SessionEnd"];
+const HOOK_EVENTS: [&str; 3] = ["InstructionsLoaded", "Stop", "SessionEnd"];
 
 /// The hook command: appends the payload, with the container's clock, as one JSON line to the log.
 /// It prints nothing on stdout or stderr, whatever the log does, never fails and never decides, so
@@ -75,37 +76,37 @@ fn settings_json() -> Value {
     json!({ "hooks": hooks })
 }
 
-/// The hook spec: the settings file and where the log goes.
-fn hooks() -> Result<HookSpec, DriverError> {
-    let rel = |text: &str| {
-        RelPath::from_str(text).map_err(|error| invalid(text, error.to_string())) // BORROW: .to_string() gives owned text
-    };
+/// The settings file that installs the observation hooks, in the agent's home, for a headless run
+/// and a session alike.
+pub(crate) fn observers() -> Result<PreparedFile, DriverError> {
     let mut text = serde_json::to_string_pretty(&settings_json())
         .map_err(|error| invalid(SETTINGS, error.to_string()))?; // BORROW: .to_string() gives owned text
     text.push('\n');
+    let rel = RelPath::from_str(SETTINGS).map_err(|error| invalid(SETTINGS, error.to_string()))?; // BORROW: .to_string() gives owned text
+    Ok(PreparedFile::in_home(rel, text.into_bytes(), false))
+}
+
+/// The argument of `--settings`: the observation hooks' file, by its path in the container.
+pub(crate) fn settings_argument() -> String {
+    format!("{AGENT_HOME}/{SETTINGS}")
+}
+
+/// The hook spec: where the log goes and the stream that archives it.
+fn hooks() -> Result<HookSpec, DriverError> {
+    let log = RelPath::from_str(HOOK_LOG).map_err(|error| invalid(HOOK_LOG, error.to_string()))?; // BORROW: .to_string() gives owned text
     let stream = StreamName::from_str(HOOK_STREAM)
         .map_err(|error| invalid(HOOK_STREAM, error.to_string()))?; // BORROW: .to_string() gives owned text
-    Ok(HookSpec::new(
-        vec![PreparedFile::in_home(
-            rel(SETTINGS)?,
-            text.into_bytes(),
-            false,
-        )],
-        rel(HOOK_LOG)?,
-        stream,
-    ))
+    Ok(HookSpec::new(log, stream))
 }
 
 /// The session of a cell: stdin open, the prompt as the first message, closed by end of input, with
-/// the observation hooks installed from a settings file outside the workspace.
+/// the observation hooks of the command line's settings file logging to the hook log.
 ///
 /// # Errors
 /// [`DriverError`] when a value of the cell is missing or cannot be used.
 pub fn spec(cell: &candler_harness::spec::Cell<'_>) -> Result<SessionSpec, DriverError> {
     let prompt = cell.prompt()?;
-    let mut argv = argv(cell, Launch::Session)?;
-    argv.push("--settings".to_owned()); // BORROW: .to_owned() makes the owned argument
-    argv.push(format!("{AGENT_HOME}/{SETTINGS}"));
+    let argv = argv(cell, Launch::Session)?;
     let command = CommandSpec::builder().argv(argv).build()?;
     let message = json!({
         "type": "user",

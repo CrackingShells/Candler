@@ -765,7 +765,8 @@ fn fresh_cells<'r>(
             let view = Cell::new(cell.comparable.values());
             let harness = driver.id().to_string(); // BORROW: .to_string() gives owned text
             agent_config::instructions(&view, harness.as_str())?; // BORROW: explicit .as_str()
-            agent_config::hooks(&view, harness.as_str())?; // BORROW: explicit .as_str()
+            // The envelope is the driver's to read: here only the keys and the harness's entry.
+            agent_config::hooks::<serde_json::Value>(&view, harness.as_str())?; // BORROW: explicit .as_str()
             refuse_unanswered(driver, &view)?;
             driver.check_settings(&view)?;
         }

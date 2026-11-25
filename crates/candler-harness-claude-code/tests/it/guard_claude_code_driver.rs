@@ -10,7 +10,9 @@ use std::process::Command;
 use std::str::FromStr as _;
 
 use candler_harness::driver::HarnessDriver;
-use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, StopSignal, Workspace};
+use candler_harness::spec::{
+    Cell, CollectSpec, EnvValue, FileRoot, Observed, StopSignal, Workspace,
+};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, Name};
@@ -105,6 +107,12 @@ fn b21_reference_command_line() -> Res<()> {
                 });
             }
         }
+        // The one addition to the reference: the observation hooks' settings file, which the
+        // census of loaded instruction files reads.
+        argv.extend([
+            "--settings".to_owned(),
+            "/home/agent/.candler/settings.json".to_owned(),
+        ]);
         Ok(argv)
     };
     let root = Path::new("/work/run");
@@ -587,5 +595,153 @@ fn claude_code_refuses_codemode_true() -> Res<()> {
     );
     assert_eq!(refusal_of(None)?, None);
     assert_eq!(refusal_of(Some(json!(false)))?, None);
+    Ok(())
+}
+
+/// The cell of `values("default")` with `extra` values set.
+fn values_with(extra: &[(&str, serde_json::Value)]) -> Res<Vec<ResolvedValue>> {
+    let mut all = values("default")?;
+    for (path, value) in extra {
+        all.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(value.clone())?, // BORROW: .clone() copies the test's value
+        ));
+    }
+    Ok(all)
+}
+
+/// Guards: G3 plan — a cell with the four values installs the global text in the home as
+/// `.claude/CLAUDE.md` and reads it through the `user` source, lists the workspace text as the
+/// read-only `CLAUDE.md` and writes none, renders `hooks` of `.claude/settings.json` equal to the
+/// payload, places the hook files under `.claude/hooks/` executable, and passes the observers'
+/// settings file, with `InstructionsLoaded`, to the headless command as to the session's.
+/// Oracle: the payload and texts written here by hand.
+/// Bite: leave `user` out of the sources, write `CLAUDE.md` into the prepared files, or pass the
+/// observers only in session mode.
+#[test]
+fn a_cell_with_the_four_values_installs_them_where_claude_code_reads_them() -> Res<()> {
+    let hooks = json!({"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": ".claude/hooks/guard.sh"}]}]});
+    let cell = values_with(&[
+        ("instructions.global", json!({"claude-code": "global text"})),
+        ("instructions.workspace", json!("workspace text")),
+        (
+            "hooks",
+            json!({"claude-code": {"settings": hooks, "files": {"guard.sh": "#!/bin/sh\nexit 0\n"}}}),
+        ),
+    ])?;
+    let plan =
+        ClaudeCodeDriver::new().plan(&Cell::new(&cell), &Workspace::new(Path::new("/work/run")))?;
+    let find = |path: &str| {
+        plan.prepared
+            .files
+            .iter()
+            .find(|file| file.path.as_str() == path)
+    };
+
+    let global = find(".claude/CLAUDE.md").ok_or("no global file")?;
+    assert_eq!(global.root, FileRoot::Home);
+    assert_eq!(global.contents, b"global text");
+    assert!(
+        find("CLAUDE.md").is_none(),
+        "the driver never writes the workspace file"
+    );
+    let [workspace] = plan.workspace_files.as_slice() else {
+        return Err("expected one workspace file".into());
+    };
+    assert_eq!(workspace.path.as_str(), "CLAUDE.md");
+    assert_eq!(workspace.root, FileRoot::Workspace);
+    assert_eq!(workspace.contents, b"workspace text");
+
+    let settings: serde_json::Value =
+        serde_json::from_slice(&find(".claude/settings.json").ok_or("no settings")?.contents)?;
+    assert_eq!(settings["hooks"], hooks);
+    let script = find(".claude/hooks/guard.sh").ok_or("no hook file")?;
+    assert!(script.executable);
+    assert_eq!(script.contents, b"#!/bin/sh\nexit 0\n");
+
+    let observers: serde_json::Value = serde_json::from_slice(
+        &find(".candler/settings.json")
+            .ok_or("no observers")?
+            .contents,
+    )?;
+    assert!(observers["hooks"]["InstructionsLoaded"].is_array());
+    let argv = plan.command.argv();
+    let at = |flag: &str| argv.iter().position(|arg| arg == flag);
+    let sources = at("--setting-sources").ok_or("no sources")?;
+    assert_eq!(
+        argv.get(sources + 1).map(String::as_str),
+        Some("user,project,local")
+    );
+    let settings_flag = at("--settings").ok_or("the headless command has no --settings")?;
+    assert_eq!(
+        argv.get(settings_flag + 1).map(String::as_str),
+        Some("/home/agent/.candler/settings.json")
+    );
+    Ok(())
+}
+
+/// Guards: G3 plan, no regression — a cell without these values renders the same
+/// `.claude/settings.json` as before, reads the project and local sources only, and installs the
+/// home observers file and no other file of the four values.
+/// Oracle: `{}` and the sources of the reference line, written by hand.
+/// Bite: add `user` or an empty `hooks` key for every cell.
+#[test]
+fn a_cell_without_the_values_changes_nothing_but_the_observers() -> Res<()> {
+    let cell = values("default")?;
+    let plan =
+        ClaudeCodeDriver::new().plan(&Cell::new(&cell), &Workspace::new(Path::new("/work/run")))?;
+    let paths: Vec<&str> = plan
+        .prepared
+        .files
+        .iter()
+        .map(|file| file.path.as_str())
+        .collect();
+    assert_eq!(paths, [".claude/settings.json", ".candler/settings.json"]);
+    assert_eq!(plan.prepared.files[0].contents, b"{}\n");
+    assert_eq!(plan.workspace_files, []);
+    assert!(plan.command.argv().iter().any(|arg| arg == "project,local"));
+    Ok(())
+}
+
+/// Guards: invariant 6 — a payload cannot disable the observers or write outside `.claude/`: its
+/// `settings` land under `hooks` and nowhere else, a hook file path that leaves the directory is
+/// refused, and the observers sit in a file the payload cannot name.
+/// Oracle: payloads written by hand.
+/// Bite: merge the payload into the root of the settings, or join paths without checking them.
+#[test]
+fn a_payload_cannot_reach_beyond_hooks_and_the_hooks_directory() -> Res<()> {
+    let driver = ClaudeCodeDriver::new();
+    let hostile = values_with(&[(
+        "hooks",
+        json!({"claude-code": {"settings": {"disableAllHooks": true, "Stop": []},
+                                "files": {"ok.sh": "x"}}}),
+    )])?;
+    let plan = driver.plan(
+        &Cell::new(&hostile),
+        &Workspace::new(Path::new("/work/run")),
+    )?;
+    let settings: serde_json::Value = serde_json::from_slice(&plan.prepared.files[0].contents)?;
+    let root: Vec<&String> = settings
+        .as_object()
+        .ok_or("not an object")?
+        .keys()
+        .collect();
+    assert_eq!(root, ["hooks"]);
+    for file in &plan.prepared.files {
+        let path = file.path.as_str();
+        let under = path.starts_with(".claude/hooks/")
+            || path == ".claude/settings.json"
+            || path == ".candler/settings.json";
+        assert!(under, "{path}");
+    }
+    for path in ["../x.sh", "a/../../x.sh", "/etc/x.sh"] {
+        let cell = values_with(&[("hooks", json!({"claude-code": {"files": {path: "x"}}}))])?;
+        assert!(
+            driver
+                .plan(&Cell::new(&cell), &Workspace::new(Path::new("/work/run")))
+                .is_err(),
+            "{path} was accepted"
+        );
+    }
     Ok(())
 }

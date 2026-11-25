@@ -1331,18 +1331,20 @@ fn hook_commands() -> Vec<(String, String)> {
         .map(|(path, value)| candler_schemas::values::ResolvedValue::recorded(fp(path), js(value)))
         .collect();
     let driver = ClaudeCodeDriver::new();
-    let spec = driver
+    let plan = driver
         .plan(
             &Cell::new(&resolved),
             &Workspace::new(Path::new("/work/run")),
         )
-        .expect("a plan")
-        .session
-        .expect("a session spec");
-    let hooks = spec.hooks.expect("the driver installs hooks");
-    assert_eq!(hooks.files.len(), 1, "one settings file");
+        .expect("a plan");
+    let file = plan
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str() == ".candler/settings.json")
+        .expect("the observers' settings file");
     let settings: serde_json::Value =
-        serde_json::from_slice(&hooks.files[0].contents).expect("settings JSON");
+        serde_json::from_slice(&file.contents).expect("settings JSON");
     let mut commands = Vec::new();
     for (event, entries) in settings["hooks"].as_object().expect("hooks") {
         for entry in entries.as_array().expect("entries") {

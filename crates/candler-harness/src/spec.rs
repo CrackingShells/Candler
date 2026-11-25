@@ -1157,14 +1157,11 @@ pub enum SessionClose {
     Action(Action),
 }
 
-/// Where the observation hooks write and how the driver installs them. The hooks only observe:
-/// they never block, decide or print.
+/// Where the observation hooks write. The hooks only observe: they never block, decide or print.
+/// The driver installs them as files of the plan, rooted at the agent's home.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct HookSpec {
-    /// The files that install the hooks, rooted at the agent's home ([`FileRoot::Home`]), outside
-    /// the workspace.
-    pub files: Vec<PreparedFile>,
     /// The file the hooks append to, relative to the agent's home.
     pub log: RelPath,
     /// The raw stream that archives the log.
@@ -1174,8 +1171,8 @@ pub struct HookSpec {
 impl HookSpec {
     /// A hook spec.
     #[must_use]
-    pub const fn new(files: Vec<PreparedFile>, log: RelPath, stream: StreamName) -> Self {
-        Self { files, log, stream }
+    pub const fn new(log: RelPath, stream: StreamName) -> Self {
+        Self { log, stream }
     }
 }
 

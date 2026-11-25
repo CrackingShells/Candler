@@ -3,9 +3,10 @@
 
 use std::str::FromStr as _;
 
-use candler_harness::agent_config::{Hooks, hooks, instructions};
+use candler_harness::agent_config::{hooks, instructions};
 use candler_harness::driver::DriverError;
 use candler_harness::spec::Cell;
+use candler_schemas::agent_config::{ClaudeCodeHooks, OpenCodeHooks};
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
@@ -43,12 +44,12 @@ fn a_cell_gives_each_harness_its_own_envelope() -> Res<()> {
         ("instructions.workspace", json!("workspace")),
     ])?;
     let view = Cell::new(&values);
-    let Some(Hooks::ClaudeCode(found)) = hooks(&view, "claude-code")? else {
+    let Some(found) = hooks::<ClaudeCodeHooks>(&view, "claude-code")? else {
         return Err("claude code hooks".into());
     };
     assert_eq!(found.settings.map(Value::Object), Some(json!({"Stop": []})));
     assert_eq!(found.files.len(), 1);
-    let Some(Hooks::OpenCode(found)) = hooks(&view, "opencode")? else {
+    let Some(found) = hooks::<OpenCodeHooks>(&view, "opencode")? else {
         return Err("opencode hooks".into());
     };
     assert_eq!(found.plugins.len(), 1);
@@ -71,7 +72,7 @@ fn a_cell_gives_each_harness_its_own_envelope() -> Res<()> {
 fn an_entry_that_does_not_fit_its_envelope_is_refused() -> Res<()> {
     let refused = |hooks_value: Value| -> Res<String> {
         let values = cell(&[("hooks", hooks_value)])?;
-        match hooks(&Cell::new(&values), "claude-code") {
+        match hooks::<ClaudeCodeHooks>(&Cell::new(&values), "claude-code") {
             Err(DriverError::InvalidValue { path, detail }) => {
                 assert_eq!(path.to_string(), "hooks");
                 Ok(detail)

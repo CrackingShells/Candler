@@ -255,10 +255,14 @@ impl HarnessDriver for Driver {
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let mut plan = self.inner.plan(cell, workspace)?;
-        if !self.hooks
-            && let Some(found) = plan.session.as_mut()
-        {
-            found.hooks = None;
+        if !self.hooks {
+            if let Some(found) = plan.session.as_mut() {
+                found.hooks = None;
+            }
+            // The observers' settings file is part of the hooks.
+            plan.prepared
+                .files
+                .retain(|file| file.path.as_str() != ".candler/settings.json");
         }
         Ok(plan)
     }

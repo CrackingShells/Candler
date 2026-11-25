@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, FileRoot, Framing, PendingState, SessionClose, SessionRecord, SessionSpec, SessionTracker,
+    Cell, Framing, PendingState, SessionClose, SessionRecord, SessionSpec, SessionTracker,
 };
 use candler_schemas::raw::{Clock as FrameClock, ClockAnchor, StreamName};
 use candler_schemas::trace::{Cap, EndedBy};
@@ -427,7 +427,7 @@ impl HookLog {
 // One session run.
 // ---------------------------------------------------------------------------------------------
 
-/// A session that is prepared and not yet started: the hooks are installed, the watch exists.
+/// A session that is prepared and not yet started: the hook log is open, the watch exists.
 pub struct SessionRun {
     watch: Arc<SessionWatch>,
     input: Vec<u8>,
@@ -461,14 +461,13 @@ impl std::fmt::Debug for SessionWatch {
 }
 
 impl SessionRun {
-    /// Installs the hooks of `spec` under `home` and prepares the watch.
+    /// Opens the hook log of `spec` under `home` and prepares the watch.
     ///
     /// The tracker is `harness`'s. The hook log is archived as a raw stream under `frames`.
     ///
     /// # Errors
     /// [`IsolationError::Plan`] when the driver declares a session it gives no tracker for, closes
-    /// it by an action (which the runner does not run), or when a hook file or the archive cannot
-    /// be made.
+    /// it by an action (which the runner does not run), or when the archive cannot be made.
     pub fn prepare(
         harness: &dyn HarnessDriver, // TRAIT_OBJECT: the driver is the binary's choice, or a fake in tests
         spec: &SessionSpec,
@@ -490,16 +489,6 @@ impl SessionRun {
         })?;
         let mut log = None;
         if let Some(hooks) = &spec.hooks {
-            for file in &hooks.files {
-                if file.root != FileRoot::Home {
-                    return Err(plan_error(format!(
-                        "the hook file {} is not rooted at the agent's home",
-                        file.path
-                    )));
-                }
-                super::write_file(home, file)
-                    .map_err(|error| plan_error(format!("cannot write a hook file: {error}")))?;
-            }
             let anchor = ClockAnchor::new(
                 now().map_err(|error| plan_error(error.to_string()))?, // BORROW: .to_string() gives owned text
                 0,
