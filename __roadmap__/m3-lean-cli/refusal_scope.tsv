@@ -1,6 +1,6 @@
 enum	file	variants	author	side	section	leaf	note
 candler_core::evaluation::client::ClientError	crates/candler-core/src/evaluation/client/mod.rs	5	mixed	plugin	evaluation	refusal_late	author-facing: Spawn (evaluator will not start), Cancelled, Describe failure; internal: Pipes, Encode
-candler_core::evaluation::context::ContextError	crates/candler-core/src/evaluation/context/mod.rs	10	mixed	plugin	evaluation	refusal_late	author-facing: glob invalid, unsupported need, input kind, metadata path, workspace; internal: Build, Store wrappers
+candler_core::evaluation::context::ContextError	crates/candler-core/src/evaluation/context/mod.rs	11	mixed	plugin	evaluation	refusal_late	author-facing: glob invalid, unsupported need, input kind, metadata path, workspace; internal: Build, Store wrappers
 candler_core::evaluation::engine::EvaluateError	crates/candler-core/src/evaluation/engine/mod.rs	9	mixed	plugin	evaluation	refusal_late	author-facing: env not ready, Registry, suite invalid, run glob, Plan, plug-in; internal: Task; transparent Store
 candler_core::evaluation::engine::plan::PlanError	crates/candler-core/src/evaluation/engine/plan.rs	3	yes	suite	evaluation	refusal_late	suite dependency cycle, unknown dependency
 candler_core::evaluation::registry::RegistryError	crates/candler-core/src/evaluation/registry/mod.rs	13	yes	plugin	evaluation	refusal_late	plug-in manifest, evaluator, kind, params, no state home

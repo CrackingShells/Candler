@@ -38,3 +38,34 @@ file = "domain.py"
 xor_first_byte = 1
 projection = "{\"artifacts\":[{\"path\":\"cont-train.json\",\"sha256\":\"sha256:9e79641026c088d5977727a252eccb44aa5a440399011f497b5504e82ce33e0b\"},{\"path\":\"domain.py\",\"sha256\":\"sha256:0c2651a20f393284ab0880100416feda100c6ee8428c0d97367d0e624568e9b4\"},{\"path\":\"problems.py\",\"sha256\":\"sha256:57d084dc0f9ea0b8a555d66fba8a0fc441a14675442af09964a2f1f9ef710d28\"}],\"snapshots\":[],\"inputs\":[],\"metadata\":{\"plan.prompt_domain_name\":\"cont-train\"}}"
 digest = "sha256:c09cf0ea32d68a6f13fa8418a7d26844212dbe6e514c8a486829cab7af5d5fb9"
+
+# Served parts: the same runs and needs as above, with the kinds declaring the parts named in
+# `needs`. `trace_sha256`, `manifest_sha256` and `raw` record the hash of each stored file
+# (see gen_live_context.py); a part a row does not serve has none of them and no key in its projection.
+
+[[served]]
+cell = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"
+run = "with_skill/run-6"
+needs = ["trace", "raw", "manifest"]
+trace_sha256 = "sha256:69a060902f6c8e57181e00e1168db325f161e0dc2a7c4fd5d17120adc8015d7b"
+manifest_sha256 = "sha256:0b63023ac489f555b8b43a45e67e88614cdf047d2b9f24613ddffddee0ce9bfd"
+raw = [{ stream = "stderr", sha256 = "sha256:cf28394a5300622c08a3a120f65ee05dacad9238ba077220f7a8805b39d3842e" }, { stream = "stdout", sha256 = "sha256:20d43143e335ec527bdbb3943aea771523bac466a366f5bc1efb114d9df676c8" }]
+projection = "{\"artifacts\":[{\"path\":\"cont-train.json\",\"sha256\":\"sha256:9e79641026c088d5977727a252eccb44aa5a440399011f497b5504e82ce33e0b\"},{\"path\":\"domain.py\",\"sha256\":\"sha256:67bc1eac7242670159d22fcfa503416b4f0874a405c206eb4c6a0d1126130b61\"},{\"path\":\"problems.py\",\"sha256\":\"sha256:57d084dc0f9ea0b8a555d66fba8a0fc441a14675442af09964a2f1f9ef710d28\"}],\"snapshots\":[],\"inputs\":[],\"metadata\":{\"plan.prompt_domain_name\":\"cont-train\"},\"trace\":\"sha256:69a060902f6c8e57181e00e1168db325f161e0dc2a7c4fd5d17120adc8015d7b\",\"raw\":[{\"stream\":\"stderr\",\"sha256\":\"sha256:cf28394a5300622c08a3a120f65ee05dacad9238ba077220f7a8805b39d3842e\"},{\"stream\":\"stdout\",\"sha256\":\"sha256:20d43143e335ec527bdbb3943aea771523bac466a366f5bc1efb114d9df676c8\"}],\"manifest\":\"sha256:0b63023ac489f555b8b43a45e67e88614cdf047d2b9f24613ddffddee0ce9bfd\"}"
+digest = "sha256:3407dcc0e38bf8d10392423e0bdb6f9b8eff44416ecdd315bcc8cf44e4bde3c6"
+
+[[served]]
+cell = "20260806-035940_v0.2.6_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-0.2.6"
+run = "with_skill/run-12"
+needs = ["trace"]
+trace_sha256 = "sha256:c0f214b78374d1917a4e30a7a6d443d8cea2463ef23c5d88057b3b92df438d90"
+projection = "{\"artifacts\":[{\"path\":\"cont-train.json\",\"sha256\":\"sha256:d1238cde58dc83c8a22ec512974681b3c4f30c7eeeab977d5e3096058f318552\"},{\"path\":\"domain.py\",\"sha256\":\"sha256:12b3cddb89db9df478e0f38a2b5ae531ddb968d330c3d8b71295b101795cb83f\"},{\"path\":\"problems.py\",\"sha256\":\"sha256:588434f85cfb10eca786c798729a2a1a315c61caa1a26d8ff0504a5a39918fd4\"}],\"snapshots\":[],\"inputs\":[],\"metadata\":{\"plan.prompt_domain_name\":\"cont-train\"},\"trace\":\"sha256:c0f214b78374d1917a4e30a7a6d443d8cea2463ef23c5d88057b3b92df438d90\"}"
+digest = "sha256:913328a495dd9dc92143923bb4bb9de30eadba74dda98db986457483de7b5c13"
+
+[[served]]
+cell = "20260806-035940_v0.2.3_claude-haiku-4-5_model-claude-haiku-4-5_skill_version-htn-creator-v0.2.3"
+run = "with_skill/run-17"
+needs = ["raw", "manifest"]
+manifest_sha256 = "sha256:99e1e4149b6ab19493168633a19b71c4f5963a1d34a660408dec9e43045a399d"
+raw = [{ stream = "stderr", sha256 = "sha256:cf28394a5300622c08a3a120f65ee05dacad9238ba077220f7a8805b39d3842e" }, { stream = "stdout", sha256 = "sha256:840f56d62935579f8449462b6835fe040bf5189f413b973240328181dec3e5ea" }]
+projection = "{\"artifacts\":[{\"path\":\"domain.py\",\"sha256\":\"sha256:9796f2ffee49bed8fcb2d2f6b6a79ae0b615a17d30743f167287730f51e45733\"},{\"path\":\"problems.py\",\"sha256\":\"sha256:242e73f98151c800389f902d956a1193d1abfeb12beaff734f3c84b7cbcc58da\"}],\"snapshots\":[],\"inputs\":[],\"metadata\":{\"plan.prompt_domain_name\":\"cont-train\"},\"raw\":[{\"stream\":\"stderr\",\"sha256\":\"sha256:cf28394a5300622c08a3a120f65ee05dacad9238ba077220f7a8805b39d3842e\"},{\"stream\":\"stdout\",\"sha256\":\"sha256:840f56d62935579f8449462b6835fe040bf5189f413b973240328181dec3e5ea\"}],\"manifest\":\"sha256:99e1e4149b6ab19493168633a19b71c4f5963a1d34a660408dec9e43045a399d\"}"
+digest = "sha256:c02e9ee8328f73f73bb39ef87c416367c301847dd46699c3312e250009c33d09"
