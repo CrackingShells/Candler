@@ -8,6 +8,7 @@ Environment:
     FAKE_PORT    the TLS port (default 8443).
     FAKE_DIR     where the certificates and the records go (default /tmp/fake).
     FAKE_OUT_TOKENS  output tokens each answer reports (default 20).
+    FAKE_G1_COMMANDS  a JSON list of two shell commands, the script of model g1 (default: none).
     FAKE_DELAY_SECS  how long the answer to a c3 request is held, after it is recorded (default 0,
                  at most 120).
 
@@ -31,6 +32,10 @@ The script is chosen by the model id of a /v1/messages request:
         OpenCode). A request that defers its MCP tools (Claude Code, which offers ToolSearch) is
         answered with a ToolSearch for `mcp__parity__stamp` first, and its result with the call.
         Anything else is answered with text.
+    g1  must run what it is told. A first user prompt is answered with a call to the shell tool
+        (`Bash`, or `shell` for OpenCode) for the first command of FAKE_G1_COMMANDS, the result of
+        that with the second command, and the result of that with the call to the stamp tool, as
+        for p1. Anything else is answered with text.
     c3  must be slow. Every request is answered "hello" after FAKE_DELAY_SECS seconds, so that a
         run is live and its agent is mid-turn for that long.
 
@@ -123,8 +128,42 @@ def last_tool_result(messages):
     return ids[-1] if ids else None
 
 
+SHELL_TOOLS = ("Bash", "shell")
+
+
+def graded_blocks(state, tools, messages):
+    """The answer of model g1: two shell commands, then the stamp call, then text."""
+    commands = json.loads(os.environ.get("FAKE_G1_COMMANDS", "[]"))
+    shell = next((name for name in tools if name in SHELL_TOOLS), None)
+    last = last_tool_result(messages) if state == "tool_result" else None
+    steps = ("toolu_fake_g1_0", "toolu_fake_g1_1")
+
+    def shell_call(index):
+        return {"type": "tool_use", "id": steps[index], "name": shell,
+                "input": {"command": commands[index]}}
+
+    if shell and len(commands) == 2:
+        if state == "prompt":
+            return [shell_call(0)], "tool_use", "g1-shell-0"
+        if last == steps[0]:
+            return [shell_call(1)], "tool_use", "g1-shell-1"
+        if last == steps[1]:
+            offered = [name for name in tools if name in PARITY_TOOLS]
+            if offered:
+                return [stamp_call(offered[0])], "tool_use", "g1-call"
+            if "ToolSearch" in tools:
+                search = {"type": "tool_use", "id": "toolu_fake_search", "name": "ToolSearch",
+                          "input": {"query": "select:" + PARITY_TOOLS[0], "max_results": 1}}
+                return [search], "tool_use", "g1-search"
+        if last == "toolu_fake_search":
+            return [stamp_call(PARITY_TOOLS[0])], "tool_use", "g1-call"
+    return [{"type": "text", "text": "done"}], "end_turn", "g1-text"
+
+
 def script_blocks(model, state, tools, messages):
     """The content blocks, the stop reason and a label of the answer for one request."""
+    if model.startswith("g1"):
+        return graded_blocks(state, tools, messages)
     if model.startswith("p1"):
         offered = [name for name in tools if name in PARITY_TOOLS]
         if state == "prompt" and offered:

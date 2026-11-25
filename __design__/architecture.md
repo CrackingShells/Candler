@@ -1026,7 +1026,7 @@ as the evaluator's log.
 | ↳ result | | response | `{reported: n}` |
 | `cancel` | core → evaluator | notification | request id; the evaluator answers `evaluate` with error `-32800` (request cancelled) |
 
-**`needs`** = `{trace: bool, raw: bool, manifest: bool, artifacts[] (globs relative to the run's outputs),
+**`needs`** = `{trace: bool, raw: bool, manifest: bool, artifacts[] (globs relative to the run, each starting with `outputs/`),
 snapshots[] (kinds), inputs[] (kinds), metadata[] (run-manifest field paths)}`; `raw` and
 `manifest` read as `false` when absent. `resolve` checks every need the core can meet
 without a run; an `inputs` need for `build_inputs` is refused there, by name. A need a run cannot
