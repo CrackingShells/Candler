@@ -33,4 +33,6 @@ Level 1 is done and merged locally. On 2026-11-25 Eliott raised the cap from $85
 
 On 2026-11-25 level 2 found that a resolve step cannot reach a cell's plan, which the harness check needs. The check moved beside the start check of the declared servers (`check_servers`, before the job's first run), and the collision check moved to planning. G6 and G10 are worded accordingly; the check still runs before any agent.
 
+On 2026-11-25 the M6.5 and M6d (run context) leads agreed how the two trace changes meet. Whichever lands second takes the other in, regenerates the schema and the trace page instead of merging them by hand, bumps no version by hand, and writes the `needs.trace` sentence about `context_start`. The leaf `meet_run_context` (L4) holds this for the case where M6.5 lands second. M6.5 takes `origin/main` in by a merge, since its history is not rewritten.
+
 No decision is open.

@@ -10,12 +10,13 @@ A reviewer who did not build the milestone finds no gate that passes for the wro
 - [ ] `[cmd]` `git merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds, after L3 has merged
 
 ## Success Gates
-- ⬜ `adversarial_review.md` is `done`
+- ⬜ `adversarial_review.md` and `meet_run_context.md` are `done`
 
 ## Status
 ```mermaid
 graph TD
     adversarial_review[Adversarial review]:::planned
+    meet_run_context[Meet run context]:::amendment
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -27,6 +28,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `adversarial_review.md` | 📄 Leaf Task | ⬜ Planned |
+| `meet_run_context.md` | 📄 Leaf Task | 🔵 Amendment |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
