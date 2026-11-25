@@ -6,7 +6,6 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::Arc;
-use std::time::Duration;
 
 use candler_core::isolation::docker::{ClientEnv, DockerCli};
 use candler_core::isolation::image::{DockerImageService, ImageAssets};
@@ -17,13 +16,10 @@ use candler_core::resolve::preflight::{ResolveError, Resolver};
 use candler_core::resolve::steps::env::EnvRefusal;
 use candler_core::resolve::steps::ground_truth::{GroundTruth, GroundTruthStep};
 use candler_core::resolve::steps::{M2bServices, register_m2b_steps};
-use candler_core::runner::evidence::catalog::{CatalogCommand, CommandCatalogProvider};
 use candler_core::runner::plan::{PlanError, experiment_of};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::paths;
-use candler_schemas::execution::{
-    EventPayload, ExecutionError, ExperimentFile, Level, check_replicates,
-};
+use candler_schemas::execution::{EventPayload, ExperimentFile, Level};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::refusal::pointer_of;
 use candler_schemas::values::JsonValue;
@@ -32,16 +28,10 @@ use super::CliError;
 use super::assets;
 use super::refusal::{CliRefusal, FieldLocation, REQUEST_KEYS};
 use candler_harness::driver::HarnessDriver;
+use candler_harness::spec::AgentSetting;
 
 /// The path of the setting `[treatment] source` replaces; `--set` refuses it by name.
 const RETIRED_TREATMENT_SOURCE: &str = concat!("request.", "treatment_source");
-
-/// The time the catalog command gets inside the image.
-const CATALOG_TIMEOUT: Duration = Duration::from_secs(60);
-
-/// The program that prints the catalog of an image that offers no MCP server: a snapshot with no
-/// server in it, captured now.
-const CATALOG_PROGRAM: &str = "printf '{\"schema\":\"tool-catalog-snapshot/1\",\"captured_at\":\"%s\",\"provider\":\"candler-image@1\",\"servers\":[]}' \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"";
 
 /// The places the sources of the images are.
 pub(crate) struct AssetPaths {
@@ -94,8 +84,8 @@ pub(crate) fn refused(reason: impl Into<String>) -> CliError {
     }
 }
 
-/// The resolver with the preflight steps of the image, the harness, the treatment, the catalog
-/// and the ground truth registered; the services say where the harness reads its skills.
+/// The resolver with the preflight steps of the image, the harness, the treatment and the ground
+/// truth registered; the services say where the harness reads its skills.
 ///
 /// # Errors
 /// [`ResolveError`] when a step name is registered twice or malformed.
@@ -266,22 +256,6 @@ fn check_set_paths(fields: &[(FieldPath, String)]) -> Result<(), CliError> {
     Ok(())
 }
 
-/// Refuses a `replicates` value that is not a count: an integer is checked by
-/// [`check_replicates`], the validator of the experiment file, and anything else is refused as
-/// not positive.
-fn check_replicate_count(value: &JsonValue) -> Result<(), CliError> {
-    let count = value
-        .as_value()
-        .as_u64()
-        .ok_or(ExecutionError::NotPositive {
-            field: "replicates",
-        })
-        .map_err(CliError::refused_by)?;
-    check_replicates(count)
-        .map(drop)
-        .map_err(CliError::refused_by)
-}
-
 /// Refuses the first of `paths` that names `env`, which only the `[env]` table sets.
 fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Result<(), CliError> {
     paths
@@ -294,6 +268,25 @@ fn check_env_source<'a>(paths: impl IntoIterator<Item = &'a FieldPath>) -> Resul
                 },
             )))
         })
+}
+
+/// The input with `level` as the setting `request.treatment`, its `source` relative to the
+/// experiment file's directory `dir` as the file writes it.
+pub(crate) fn input_for_level(
+    input: &ResolveInput,
+    level: &serde_json::Value,
+    dir: &Path,
+) -> Result<ResolveInput, CliError> {
+    let path = path_of(paths::REQUEST_TREATMENT)?;
+    let given = FileValues::new(vec![(path.clone(), json_of(level)?)]) // BORROW: the values own the path
+        .relative_to(dir)
+        .map_err(CliError::refused_by)?;
+    let mut input = input.clone(); // BORROW: each level resolves its own copy
+    if let (Some(file), Some((_, value))) = (input.file.as_mut(), given.values.into_iter().next()) {
+        file.values.retain(|(held, _)| *held != path);
+        file.values.push((path, value));
+    }
+    Ok(input)
 }
 
 /// What the experiment file and the command line ask for, as the input of a resolution: the
@@ -331,9 +324,6 @@ pub fn request_settings(
     if let Some(treatment) = file.treatment() {
         values.insert(path_of(paths::REQUEST_TREATMENT)?, json_of(treatment)?);
     }
-    if let Some(count) = values.get(&path_of("replicates")?) {
-        check_replicate_count(count)?;
-    }
     let file_values = FileValues::new(values.into_iter().collect())
         .relative_to(experiment_dir)
         .map_err(CliError::refused_by)?;
@@ -343,9 +333,6 @@ pub fn request_settings(
     check_set_paths(fields)?;
     for (path, text) in fields {
         let mut value = value_of(text)?;
-        if path.as_str() == "replicates" {
-            check_replicate_count(&value)?;
-        }
         if path.as_str() == paths::REQUEST_TREATMENT {
             // BORROW: .clone() gives the file values their own path
             let given = FileValues::new(vec![(path.clone(), value.clone())])
@@ -398,7 +385,7 @@ pub(crate) fn requested_harness(input: &ResolveInput) -> Result<String, CliError
     name.ok_or_else(|| refused("`request.harness` names no harness"))
 }
 
-/// Builds the docker client, the image service and the catalog provider over one supervisor, and
+/// Builds the docker client and the image service over one supervisor, and
 /// composes the resolver on them. The harness is the registry's `driver`: it reads the
 /// image's version and says which versions are supported, and its base context builds the base
 /// image.
@@ -424,25 +411,15 @@ pub(crate) fn foreground(
     let images = DockerImageService::new(
         Arc::clone(&supervisor),
         cli.clone(), // BORROW: the service owns its client
-        env.clone(), // BORROW: the service owns its env
+        env,
         assets.images,
         Arc::clone(&driver),
-    );
-    // BORROW: .to_owned() gives the command its own words
-    let argv = vec!["sh".to_owned(), "-c".to_owned(), CATALOG_PROGRAM.to_owned()];
-    let catalog = CommandCatalogProvider::new(
-        Arc::clone(&supervisor),
-        cli.clone(), // BORROW: the provider owns its client
-        env,
-        root.to_path_buf(), // BORROW: the provider owns its root
-        CatalogCommand::new(argv, CATALOG_TIMEOUT),
     );
     let services = M2bServices {
         supervisor,
         images: Arc::new(images),
-        catalog: Arc::new(catalog),
         harness_supported: driver.supported(),
-        session_capable: driver.capabilities().session,
+        session_capable: !driver.answer(AgentSetting::SessionMode).is_refused(),
         skills: driver.skills(),
     };
     let resolver = compose_resolver(config, &services, truth).map_err(failed)?;
@@ -474,20 +451,6 @@ mod tests {
             })
             .collect();
         request_settings(file, Path::new("/work"), &fields, Path::new("/work"))
-    }
-
-    /// Guards: I12 — a replicate count of `--set` or of `[fixed]` goes through the validator of
-    /// the experiment file: 0 and a value that is no integer are refused, a count is kept.
-    /// Oracle: the values written below.
-    /// Bite: skip the check for `--set` (the first rows go red), or for `[fixed]` (the last).
-    #[test]
-    fn a_replicates_value_that_is_not_a_count_is_refused() {
-        let plain = file("");
-        assert!(settings(&plain, &["replicates=3"]).is_ok());
-        for bad in ["replicates=0", "replicates=abc", "replicates=2.5"] {
-            assert!(settings(&plain, &[bad]).is_err(), "{bad}");
-        }
-        assert!(settings(&file("\n[fixed]\nreplicates = 0\n"), &[]).is_err());
     }
 
     /// Guards: an experiment file without an `env` table gives the resolution no `env` value, so

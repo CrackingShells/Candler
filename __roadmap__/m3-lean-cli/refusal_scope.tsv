@@ -29,7 +29,6 @@ candler_core::manifest::compare::VerdictError	crates/candler-core/src/manifest/c
 candler_core::resolve::config::ConfigError	crates/candler-core/src/resolve/config.rs	6	yes	config	resolve	refusal_core	unreadable/invalid config, unknown key, misplaced key, wrong type, relative cwd
 candler_core::resolve::preflight::PreflightError	crates/candler-core/src/resolve/preflight.rs	1	yes	environment	resolve	refusal_core	single detail variant: a preflight step failed (missing dir, binary)
 candler_core::resolve::preflight::ResolveError	crates/candler-core/src/resolve/preflight.rs	6	mixed	config	resolve	refusal_core	author-facing: path not UTF-8, Value, Format; internal: step registered twice, derive conflicts
-candler_core::runner::evidence::catalog::CatalogError	crates/candler-core/src/runner/evidence/catalog.rs	6	mixed	environment	runner	refusal_core	author-facing: catalog command failed/timed out/printed none; internal: absolute path, no digest, Unavailable
 candler_core::runner::evidence::census::CensusError	crates/candler-core/src/runner/evidence/census.rs	3	mixed	environment	runner	refusal_core	author-facing: NoInit/missing key when Claude Code ran unusably; internal: Value
 candler_core::runner::evidence::tree::EvidenceError	crates/candler-core/src/runner/evidence/tree.rs	2	no	candler	internal	refusal_core	outputs of a run held to tree invariants; internal
 candler_core::runner::exec::cell::ExecError	crates/candler-core/src/runner/exec/cell.rs	5	mixed	environment	runner	refusal_core	wrapper: transparent IsolationError, StoreError, DriverError, SuperviseError, ExecutionError; no own text but Manifest
@@ -42,7 +41,6 @@ candler_harness::driver::DriverError	crates/candler-harness/src/driver.rs	5	mixe
 candler_harness::reader::ReaderError	crates/candler-harness/src/reader.rs	3	no	candler	internal	refusal_core	frame reader failures on Candler-fed frames
 candler_harness::spec::CommandSpecError	crates/candler-harness/src/spec.rs	3	no	candler	internal	refusal_core	command builder invariants
 candler_schemas::canonical::CanonicalError	crates/candler-schemas/src/canonical.rs	5	yes	experiment	schemas	contract_wire	non-finite number, integer beyond 2^53-1, repeated key, bad JSON in experiment/suite values
-candler_schemas::catalog::CatalogError	crates/candler-schemas/src/catalog.rs	6	mixed	plugin	schemas	contract_wire	author-facing: schema tag, repeated/empty names (catalog command output); internal: missing field, extra key, null
 candler_schemas::container::ContainerError	crates/candler-schemas/src/container.rs	1	no	candler	internal	contract_wire	builder missing-field only
 candler_schemas::evaluation::EvaluationError	crates/candler-schemas/src/evaluation.rs	9	mixed	suite	schemas	contract_wire	author-facing: unreadable/non-JSON document, empty list, repeated id, unknown dependency, cycle; internal: missing field
 candler_schemas::evaluation::VersionMismatch	crates/candler-schemas/src/evaluation.rs	1	yes	plugin	schemas	contract_wire	struct; evaluator protocol version incompatible with Candler

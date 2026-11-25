@@ -904,3 +904,31 @@ fn r2_a_bad_equivalence_file_is_refused_with_its_code() {
         "{text}"
     );
 }
+
+/// Guards: an experiment that sets `snapshots` is refused at resolve as an unknown path, as `--set`
+/// and as a `[fixed]` value, so no run Candler makes can carry the list.
+///
+/// Oracle: the code `experiment.unknown_path` and the path text `snapshots`, written by hand.
+///
+/// Bite: put the `snapshots` row back in `CONFIGURATION_PATHS` (the experiment is accepted).
+#[test]
+fn r3_an_experiment_cannot_set_snapshots() {
+    let world = cli_run::world();
+    let out = world.launch_with(&["--set", "snapshots=[]"]);
+    let record = record_of(&out);
+    assert_eq!(record["code"], "experiment.unknown_path", "{record}");
+    let message = record["message"].as_str().expect("a message");
+    assert!(message.contains("`snapshots`"), "{message}");
+
+    let world = cli_run::world();
+    add_to_fixed(&world, "snapshots = []");
+    let record = record_of(&world.launch_with(&[]));
+    assert_eq!(record["code"], "experiment.unknown_path", "{record}");
+    assert!(
+        record["message"]
+            .as_str()
+            .expect("a message")
+            .contains("`snapshots`"),
+        "{record}"
+    );
+}

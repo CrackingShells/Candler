@@ -8,12 +8,14 @@
 
 use std::error::Error;
 
-use candler_core::jobs::orchestrate::servers::stdio_servers;
 use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInput};
+use candler_core::resolve::paths::settings_set_by;
 use candler_core::runner::plan::{Force, PlanMode, plan_runs};
+use candler_harness::mcp::servers;
+use candler_harness::spec::Cell;
 use candler_schemas::primitives::FieldPath;
-use candler_schemas::values::JsonValue;
+use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 
 use crate::support::run_plan::{Facts, experiment, fresh_store, plan_ctx, resolution};
@@ -58,12 +60,32 @@ fn at_resolve(entries: &[(&str, Value)]) -> Option<Refused> {
     layered(entries).err()
 }
 
+/// The refusal of the resolve layer when the core's defaults set `model.token_secret` and the
+/// experiment's `env` table names it.
+fn at_resolve_default_token_secret() -> Option<Refused> {
+    let root = tempfile::tempdir().expect("a temp dir");
+    let mut input = ResolveInput::new(Vec::new()).file(FileValues::new(vec![(
+        fp("env"),
+        js(json!({"GATEWAY_TOKEN": "x"})),
+    )]));
+    input
+        .core_defaults
+        .push((fp("model.token_secret"), js(json!("GATEWAY_TOKEN"))));
+    Layered::new(&config(root.path()), input)
+        .err()
+        .map(|error| refused_by(&error))
+}
+
 /// The refusal of planning an experiment that writes `replicates = 3` when the file's values carry
 /// `replicates = 5` under `[fixed]`.
 fn at_plan_fixed_five() -> Option<Refused> {
-    let layers = layered(&[("replicates", json!(5))])
-        .expect("layers")
-        .resolve();
+    at_plan_fixed(json!(5))
+}
+
+/// The refusal of planning an experiment that writes `replicates = 3` when the file's values carry
+/// `replicates = <count>` under `[fixed]`.
+fn at_plan_fixed(count: Value) -> Option<Refused> {
+    let layers = layered(&[("replicates", count)]).expect("layers").resolve();
     let facts = Facts::base();
     let mut resolved = serde_json::to_value(resolution(&facts)).expect("JSON");
     resolved["settings"] = serde_json::to_value(&layers.settings).expect("JSON");
@@ -82,27 +104,40 @@ fn at_plan_fixed_five() -> Option<Refused> {
     .map(|error| refused_by(&error))
 }
 
-/// The refusal of the start check's reading of `declared`, if any.
-fn at_servers(declared: Value) -> Option<Refused> {
-    let Value::Object(table) = declared else {
-        panic!("a table of servers");
-    };
-    drop(stdio_servers(&table));
-    None
+/// The refusal of the reader of the MCP servers of a cell that sets `entries`, if any.
+fn at_servers(entries: &[(&str, Value)]) -> Option<Refused> {
+    let values: Vec<ResolvedValue> = entries
+        .iter()
+        .map(|(path, value)| ResolvedValue::recorded(fp(path), js(value.clone())))
+        .collect();
+    servers(&Cell::new(&values))
+        .err()
+        .map(|error| refused_by(&error))
+}
+
+/// The refusal of the keys a cell that sets `entries` is read as setting, if any.
+fn at_set_by(entries: &[(&str, Value)]) -> Option<Refused> {
+    let values: Vec<ResolvedValue> = entries
+        .iter()
+        .map(|(path, value)| ResolvedValue::recorded(fp(path), js(value.clone())))
+        .collect();
+    settings_set_by(&Cell::new(&values))
+        .err()
+        .map(|error| refused_by(&error))
 }
 
 struct Row {
     name: &'static str,
     code: &'static str,
-    pointer: &'static str,
+    pointer: Option<&'static str>,
     run: fn() -> Option<Refused>,
 }
 
-const ROWS: [Row; 4] = [
+const ROWS: [Row; 15] = [
     Row {
         name: "an env name equal to model.token_secret",
         code: "experiment.env_token_secret",
-        pointer: "/env/GATEWAY_TOKEN",
+        pointer: Some("/env/GATEWAY_TOKEN"),
         run: || {
             at_resolve(&[
                 ("model.token_secret", json!("GATEWAY_TOKEN")),
@@ -111,46 +146,98 @@ const ROWS: [Row; 4] = [
         },
     },
     Row {
+        name: "an env name equal to a model.token_secret that a core default sets",
+        code: "experiment.env_token_secret",
+        pointer: Some("/env/GATEWAY_TOKEN"),
+        run: at_resolve_default_token_secret,
+    },
+    Row {
+        name: "a [fixed] replicates that differs from the file's own count",
+        code: "experiment.replicates_conflict",
+        pointer: Some("/replicates"),
+        run: at_plan_fixed_five,
+    },
+    Row {
+        name: "a [fixed] replicate count of zero",
+        code: "experiment.count_zero",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(0)),
+    },
+    Row {
         name: "a replicates.<x> path",
         code: "experiment.replicates_path",
-        pointer: "/replicates/x",
+        pointer: Some("/replicates/x"),
         run: || at_resolve(&[("replicates.x", json!(2))]),
     },
     Row {
         name: "a replicate count that is a string",
-        code: "experiment.replicates_not_integer",
-        pointer: "/replicates",
-        run: || at_resolve(&[("replicates", json!("three"))]),
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!("three")),
     },
     Row {
         name: "a replicate count that is a fraction",
-        code: "experiment.replicates_not_integer",
-        pointer: "/replicates",
-        run: || at_resolve(&[("replicates", json!(2.5))]),
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(2.5)),
     },
-];
-
-/// The cases whose refusal needs a new variant in `runner/refusal.rs` or `jobs/refusal.rs`, which
-/// the leaf's OWNED set leaves out. They are written and red, and run once those files are owned:
-/// `cargo nextest run -p candler-core --run-ignored only -E 'test(/deferred/)'`.
-const DEFERRED: [Row; 3] = [
     Row {
-        name: "a [fixed] replicates that differs from the file's own count",
-        code: "experiment.replicates_conflict",
-        pointer: "/replicates",
-        run: at_plan_fixed_five,
+        name: "a negative replicate count",
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(-1)),
+    },
+    Row {
+        name: "a replicate count beyond 32 bits",
+        code: "experiment.replicates_not_count",
+        pointer: Some("/replicates"),
+        run: || at_plan_fixed(json!(5_000_000_000_u64)),
     },
     Row {
         name: "an MCP server command that is not a string",
-        code: "jobs.server_command_not_string",
-        pointer: "/mcp/servers/fs/command",
-        run: || at_servers(json!({"fs": {"command": 7}})),
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/mcp/servers/fs/command"),
+        run: || at_servers(&[("mcp.servers.fs.command", json!(7))]),
     },
     Row {
         name: "MCP server args that are not all strings",
-        code: "jobs.server_args_not_strings",
-        pointer: "/mcp/servers/fs/args",
-        run: || at_servers(json!({"fs": {"command": "mcp-fs", "args": ["--root", 3]}})),
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/mcp/servers/fs/args"),
+        run: || {
+            at_servers(&[
+                ("mcp.servers.fs.command", json!("mcp-fs")),
+                ("mcp.servers.fs.args", json!(["--root", 3])),
+            ])
+        },
+    },
+    Row {
+        name: "an MCP server with neither a command nor a url",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/mcp/servers/fs"),
+        run: || at_servers(&[("mcp.servers.fs.codemode", json!(true))]),
+    },
+    Row {
+        name: "an MCP server whose env holds a value that is not text",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/mcp/servers/fs/env/token"),
+        run: || {
+            at_servers(&[
+                ("mcp.servers.fs.command", json!("mcp-fs")),
+                ("mcp.servers.fs.env.token", json!(7)),
+            ])
+        },
+    },
+    Row {
+        name: "an effort that names no level",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/model/effort"),
+        run: || at_set_by(&[("model.effort", json!("turbo"))]),
+    },
+    Row {
+        name: "a permission mode that names no mode",
+        code: "experiment.cell_value_invalid",
+        pointer: Some("/permission_mode"),
+        run: || at_set_by(&[("permission_mode", json!("yolo"))]),
     },
 ];
 
@@ -158,7 +245,7 @@ const DEFERRED: [Row; 3] = [
 fn check(rows: &[Row]) {
     let mut wrong = Vec::new();
     for row in rows {
-        let want = Some((row.code.to_owned(), Some(row.pointer.to_owned())));
+        let want = Some((row.code.to_owned(), row.pointer.map(str::to_owned)));
         let got = (row.run)();
         if got != want {
             wrong.push(format!("{}: got {got:?}, want {want:?}", row.name));
@@ -177,13 +264,4 @@ fn check(rows: &[Row]) {
 #[test]
 fn silent_cases_are_refused_with_a_code_and_a_pointer() {
     check(&ROWS);
-}
-
-/// Guards: the cases of `DEFERRED`, refused with their own code and pointer.
-/// Oracle: the codes and pointers of the leaf, written by hand in `DEFERRED`.
-/// Bite: as the table above.
-#[test]
-#[ignore = "needs runner/refusal.rs and jobs/refusal.rs in the leaf's OWNED set"]
-fn deferred_silent_cases_are_refused_with_a_code_and_a_pointer() {
-    check(&DEFERRED);
 }

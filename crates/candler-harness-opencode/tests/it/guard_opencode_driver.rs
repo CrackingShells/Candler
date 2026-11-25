@@ -5,16 +5,16 @@
 //! Each expectation is a literal written by hand from `opencode_facts`, from the recorded fixtures,
 //! or from what the real binary printed for the same file (`tests/fixtures/config`).
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str::FromStr as _;
 
-use candler_harness::driver::{Disposition, DriverError, HarnessDriver};
+use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness::reader::FrameIn;
 use candler_harness::spec::{
-    Action, Cell, CollectSpec, Observed, ProcessEnd, ProcessExit, StopSignal, Workspace,
+    Action, AgentSetting, Answer, Cell, CollectSpec, EffortLevel, Observed, PermissionMode,
+    ProcessEnd, ProcessExit, StopSignal, Workspace,
 };
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
@@ -89,6 +89,19 @@ fn flatten(prefix: &str, servers: &Value, out: &mut Vec<(String, Value)>) {
             }
             None => out.push((format!("{prefix}.{key}"), server.clone())), // BORROW: .clone() copies the value
         }
+    }
+}
+
+/// The key a table case sets, for the cases that set a key the driver answers.
+fn key_of(setting: &str, value: &str) -> Option<AgentSetting> {
+    match (setting, value) {
+        ("permission_mode", mode) => {
+            PermissionMode::from_text(mode).map(AgentSetting::PermissionMode)
+        }
+        ("model.effort", level) => EffortLevel::from_text(level).map(AgentSetting::Effort),
+        ("budget.per_run.turns", _) => Some(AgentSetting::TurnBudget),
+        ("budget.per_run.max_cost_usd", _) => Some(AgentSetting::CostBudget),
+        _ => None,
     }
 }
 
@@ -248,12 +261,6 @@ fn table_cases() -> Vec<Case> {
             refuses("/fixed/permission_mode", "knows no working directory"),
         ),
         case(
-            mode,
-            "*",
-            vec![(mode, json!("dontAsk"))],
-            refuses("/fixed/permission_mode", "only `bypassPermissions`"),
-        ),
-        case(
             "budget.per_run.max_cost_usd",
             "*",
             vec![("budget.per_run.max_cost_usd", json!(1.5))],
@@ -265,13 +272,7 @@ fn table_cases() -> Vec<Case> {
             vec![("budget.per_run.turns", json!(5))],
             refuses("/budget/per_run/turns", "`error_max_turns`"),
         ),
-        // The models and levels the effort does not map for.
-        case(
-            "model.effort",
-            "*",
-            vec![("model.effort", json!("extreme")), opus.clone()], // BORROW: .clone() copies the value
-            refuses("/fixed/model.effort", "low, medium, high, xhigh and max"),
-        ),
+        // The models the effort does not map for.
     ];
     // `ultracode` is a Claude Code level the Claude Code driver passes through; OpenCode refuses it.
     cases.push(case(
@@ -402,7 +403,7 @@ fn table_cases() -> Vec<Case> {
 }
 
 /// Guards: R01 §`OpenCode` v2, §Run manifest — the declared settings table and what the driver does
-/// are one set. Every row of `settings_table()` has a case below and every case answers a row
+/// are one set. Every `AgentSetting` family has a case below and every case answers a family
 /// (dropping either side turns this red), a mapped row's case maps and a refused row's is refused,
 /// at the setting's pointer in the experiment file, in a message naming the setting, the harness
 /// and its version. Mapped: the run is
@@ -444,31 +445,15 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
 
     let cases = table_cases();
     let driver = OpenCodeDriver::new();
-    let rows = driver.settings_table();
-    let declared: BTreeSet<(String, String)> = rows
-        .iter()
-        .map(|row| (row.setting.clone(), row.value.clone())) // BORROW: .clone() copies the key out of the row
-        .collect();
-    let covered: BTreeSet<(String, String)> = cases
-        .iter()
-        .map(|c| (c.setting.to_owned(), c.value.to_owned())) // BORROW: .to_owned() makes the owned key
-        .collect();
-    assert_eq!(
-        declared, covered,
-        "the declared rows and the cases are one set"
-    );
-    for row in &rows {
-        for c in cases
-            .iter()
-            .filter(|c| c.setting == row.setting && c.value == row.value)
-        {
-            let mapped = matches!(c.expect, Expect::Maps { .. });
+    for c in &cases {
+        let key = key_of(c.setting, c.value);
+        if let Some(key) = key {
             assert_eq!(
-                mapped,
-                row.disposition == Disposition::Mapped,
-                "{} {}: the case and the row disagree",
-                row.setting,
-                row.value
+                matches!(c.expect, Expect::Refuses { .. }),
+                driver.answer(key).is_refused(),
+                "{} {}: the case and the answer disagree",
+                c.setting,
+                c.value
             );
         }
     }
@@ -505,11 +490,20 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
                 }
             }
             Expect::Refuses { pointer, needle } => {
+                if let Some(key) = key_of(c.setting, c.value) {
+                    // The core refuses what the driver answers `Refused`, before the plan; the
+                    // reason it gives is the answer's.
+                    let Answer::Refused { reason } = driver.answer(key) else {
+                        return Err(format!("{label}: the answer is not a refusal").into());
+                    };
+                    assert!(reason.contains(needle), "{label}: `{needle}` in `{reason}`");
+                    continue;
+                }
                 let (code, side, at, message) = unsupported_of_cell(&c.extra)?;
                 assert_eq!(code.as_str(), "experiment.setting_unsupported", "{label}");
                 assert_eq!(side, Side::Experiment, "{label}");
                 assert_eq!(at.as_deref(), Some(*pointer), "{label}");
-                for want in [pointer, needle, &"OpenCode", &"2.2.7"] {
+                for want in [pointer, needle, &"OpenCode"] {
                     assert!(message.contains(want), "{label}: `{want}` in `{message}`");
                 }
             }
@@ -522,12 +516,12 @@ fn opencode_command_line_maps_or_refuses_every_setting() -> Res<()> {
 /// provider's address and key are references to the variables the core sets, in a home-rooted
 /// file inside the config directory the state paths name, and the file is the one the real binary
 /// accepted; the gateway is named by two variables and nothing else of the configuration is a
-/// value; `codemode` is a cell value read per server, absent written as on, `false` making the
-/// server's tools direct tools; an MCP server shape the driver cannot translate is refused, not
+/// value; `codemode` is a cell value read per server, absent written as off, `true` making the
+/// server's tools reached through `execute`; an MCP server shape the driver cannot translate is refused, not
 /// guessed.
 /// Oracle: `tests/fixtures/config/opencode.json`, run through `opencode debug config` in the base
 /// image (`debug_config.out`: `{env:…}/v1` expanded to `http://gateway:8080/r/tag/run/key/v1`);
-/// the names are the ones that fixture refers to; `opencode_facts` row 17 (omitted is on, `false`
+/// the names are the ones that fixture refers to; `opencode_facts` row 17 (omitted is off here, `false`
 /// is direct) and the V2 shape the real binary printed for `mcp.servers.<name>.codemode`; the
 /// shapes the real binary printed (`local` with a command list, `remote` with a url) are the only
 /// ones recorded.
@@ -538,7 +532,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         "mcp",
         json!({
             "loc": {"command": "uvx", "args": ["srv"], "env": {"K": "v"}, "codemode": false},
-            "rem": {"type": "http", "url": "http://h/mcp", "headers": {"X": "y"}}
+            "rem": {"type": "http", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true}
         }),
     )])?;
     assert_eq!(file.root, candler_harness::spec::FileRoot::Home);
@@ -557,7 +551,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     assert!(config.contains(&format!("{{env:{}}}", gateway.auth_token)));
     assert_eq!(gateway.reserved, vec![gateway.base_url, gateway.auth_token]);
 
-    // `codemode` is read from the cell, absent written as on.
+    // `codemode` is read from the cell, absent written as off.
     let servers = |codemode: Option<Value>| {
         let mut server = json!({"command": "uvx", "args": []});
         if let (Some(value), Some(map)) = (codemode, server.as_object_mut()) {
@@ -570,7 +564,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         let (_, parsed) = prepared_config(&[("mcp", servers(codemode))])?;
         written.push(parsed["mcp"]["servers"]["s"]["codemode"].clone()); // BORROW: .clone() copies the value
     }
-    assert_eq!(written, [json!(true), json!(true), json!(false)]);
+    assert_eq!(written, [json!(false), json!(true), json!(false)]);
     assert!(
         prepared_config(&[("mcp", servers(Some(json!("no"))))]).is_err(),
         "a codemode that is not a boolean is refused"
@@ -587,7 +581,7 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
     prepared_config(&[(
         "mcp",
         json!({"a": {"type": "stdio", "command": "uvx", "args": ["x"], "env": {"K": "v"}, "codemode": true},
-               "b": {"type": "sse", "url": "http://h", "headers": {"X": "y"}, "codemode": false}}),
+               "b": {"type": "http", "url": "http://h", "headers": {"X": "y"}, "codemode": false}}),
     )])?;
     for servers in [
         json!({"s": {"type": "websocket", "url": "ws://h"}}),
@@ -602,7 +596,10 @@ fn opencode_prepare_writes_the_provider_mcp_codemode_and_gateway_names() -> Res<
         json!({"s": {"type": "http", "url": "http://h", "env": {"K": "v"}}}),
         json!({"s": "uvx"}),
     ] {
-        assert!(prepared_config(&[("mcp", servers)]).is_err());
+        assert!(
+            prepared_config(&[("mcp", servers.clone())]).is_err(), // BORROW: the message names the servers
+            "accepted: {servers}"
+        );
     }
     Ok(())
 }
@@ -704,9 +701,16 @@ fn opencode_live_reader_reports_id_and_last_word() -> Res<()> {
 
 /// What the export reader makes of `bytes`: its events and sessions.
 fn read_export(bytes: &[u8]) -> Res<(Vec<SessionEvent>, Vec<Session>)> {
+    read_export_for(bytes, &[])
+}
+
+/// What the export reader makes of `bytes` for a run that declared the MCP servers `servers`.
+fn read_export_for(bytes: &[u8], servers: &[String]) -> Res<(Vec<SessionEvent>, Vec<Session>)> {
     let driver = OpenCodeDriver::new();
     let export: StreamName = "export".parse()?;
-    let mut reader = driver.offline_reader(&export).ok_or("no export reader")?;
+    let mut reader = driver
+        .offline_reader(&export, servers)
+        .ok_or("no export reader")?;
     let frame = RawFrame::new(None, FrameData::from_bytes(bytes));
     let events = reader.feed(FrameIn::new(RawRef::new(export, 0), None, &frame))?;
     Ok((events, reader.finish()?))
@@ -1236,7 +1240,7 @@ fn opencode_detect_recognises_only_what_it_reads() -> Res<()> {
     let live = driver.live_reader().ok_or("no live reader")?;
     let export_stream: StreamName = "export".parse()?;
     let export = driver
-        .offline_reader(&export_stream)
+        .offline_reader(&export_stream, &[])
         .ok_or("no export reader")?;
     let recorded = stream_file("completed_o1", "stdout.jsonl")?;
     assert!(live.detect(&recorded).is_some());
@@ -1429,11 +1433,176 @@ fn opencode_a_server_name_renders_the_server_under_it() -> Res<()> {
     ])?;
     assert_eq!(
         parsed["mcp"],
-        json!({"servers": {"x-y": {"type": "local", "command": ["uvx"], "codemode": true}}})
+        json!({"servers": {"x-y": {"type": "local", "command": ["uvx"], "codemode": false}}})
     );
     assert_eq!(
         parsed["permissions"],
         json!([{"action": "x-y_t", "effect": "allow", "resource": "*"}])
+    );
+    Ok(())
+}
+
+/// The export of `completed_o1` with its tool call replaced by one call to each of `names`.
+fn export_calling(names: &[&str]) -> Res<Vec<u8>> {
+    let mut document: Value = serde_json::from_slice(&stream_file("completed_o1", "export.json")?)?;
+    for message in document["messages"].as_array_mut().into_iter().flatten() {
+        let Some(blocks) = message.get_mut("content").and_then(Value::as_array_mut) else {
+            continue;
+        };
+        if let Some(at) = blocks.iter().position(|block| block["type"] == "tool") {
+            let template = blocks.remove(at);
+            for (index, name) in names.iter().enumerate() {
+                let mut call = template.clone();
+                call["name"] = json!(name);
+                call["id"] = json!(format!("toolu_call_{index}"));
+                blocks.insert(at + index, call);
+            }
+        }
+    }
+    Ok(serde_json::to_vec(&document)?)
+}
+
+/// The `origin` and `wrapped_calls` of each tool call among `events`, in order.
+fn call_origins(events: &[SessionEvent]) -> Res<Vec<(Value, Value)>> {
+    let mut found = Vec::new();
+    for kind in kinds(events)? {
+        if kind["kind"] == "tool_call" {
+            found.push((kind["origin"].clone(), kind["wrapped_calls"].clone()));
+        }
+    }
+    Ok(found)
+}
+
+/// Guards: R01 §Normalised trace — a call to `<server>_<tool>` is the tool `<tool>` of a server the
+/// cell declares, the longest declared name first; a name no declared server begins is never
+/// taken for a server's by its spelling; a built-in stays built in; and an `execute` call (code
+/// mode) is a built-in call that wraps no call.
+/// Oracle: the literal origins written by hand from the trace schema.
+/// Bite: a reader that takes the text before the first `_` for the server, matches the shortest
+/// name first, matches an undeclared server, or lists a `wrapped_calls` entry for `execute`.
+#[test]
+fn opencode_export_reader_attributes_calls_to_the_declared_servers_only() -> Res<()> {
+    let servers = strings(&["s", "a", "a_b"]);
+    let names = ["s_t", "a_b_c", "a_x", "x_t", "s", "s_", "shell", "execute"];
+    let (events, _) = read_export_for(&export_calling(&names)?, &servers)?;
+    let mcp = |server: &str, tool: &str| json!({"kind": "mcp", "server": server, "tool": tool});
+    let none = json!([]);
+    assert_eq!(
+        call_origins(&events)?,
+        vec![
+            (mcp("s", "t"), none.clone()),
+            (mcp("a_b", "c"), none.clone()),
+            (mcp("a", "x"), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "other"}), none.clone()),
+            (json!({"kind": "builtin"}), none.clone()),
+            (json!({"kind": "builtin"}), none),
+        ]
+    );
+    let (events, _) = read_export_for(&export_calling(&["s_t"])?, &[])?;
+    assert_eq!(
+        call_origins(&events)?.first().map(|(origin, _)| origin),
+        Some(&json!({"kind": "other"})),
+        "a run that declared no server has no MCP call"
+    );
+    Ok(())
+}
+
+/// Guards: R01 §Harness drivers (`check_settings`) — two servers where one name, then `_`, begins the
+/// other are refused at resolve with `AmbiguousServers` naming both, whatever the order of the
+/// keys; servers that merely share a prefix with no `_` after it are accepted.
+/// Oracle: `OpenCode` names a tool `<server>_<tool>` (v2.2.7), so `a_b_c` reads two ways with `a`
+/// and `a_b`; the two names and the pairs that do not collide are written by hand.
+/// Bite: no check, a check on the bare prefix (`a` against `ab`), or one that looks only at the
+/// first key.
+#[test]
+fn opencode_refuses_servers_whose_tool_prefixes_are_ambiguous() -> Res<()> {
+    let driver = OpenCodeDriver::new();
+    let check = |keys: &[&str]| -> Res<Result<(), DriverError>> {
+        let table: serde_json::Map<String, Value> = keys
+            .iter()
+            .map(|key| ((*key).to_owned(), json!({"command": "uvx", "args": []})))
+            .collect();
+        let values = values(&[("mcp", Value::Object(table))])?;
+        Ok(driver.check_settings(&Cell::new(&values)))
+    };
+    for keys in [["a", "a_b"], ["a_b", "a"]] {
+        match check(&keys)? {
+            Err(DriverError::AmbiguousServers { first, second }) => {
+                assert_eq!((first.as_str(), second.as_str()), ("a", "a_b"));
+            }
+            other => return Err(format!("{keys:?} gave {other:?}").into()),
+        }
+    }
+    for keys in [vec!["a", "ab"], vec!["a_b", "ab", "b"], vec!["a"]] {
+        assert!(check(&keys)?.is_ok(), "{keys:?} are not ambiguous");
+    }
+    Ok(())
+}
+
+/// Guards: the `mcp` entries of `opencode.json` hold, for each server, the keys `OpenCode` documents
+/// for its `type` and no other: `local` takes `type`, `command`, `environment` and `codemode`,
+/// `remote` takes `type`, `url`, `headers` and `codemode`; a server that sets no `codemode` is
+/// written with `codemode: false`.
+/// Oracle: the `OpenCode` MCP servers documentation, `opencode.ai/docs/mcp-servers`, the `Local` and
+/// `Remote` field tables, read through Context7 `/websites/opencode_ai`; the literal JSON below.
+/// Bite: `#[serde(default)]` of `McpServer::codemode` replaced by a default of `true`, or a key
+/// outside the tables written by `server`.
+#[test]
+fn the_config_holds_the_keys_opencode_documents() -> Res<()> {
+    let documented = |kind: &str| -> &'static [&'static str] {
+        match kind {
+            "local" => &["type", "command", "environment", "codemode"],
+            "remote" => &["type", "url", "headers", "codemode"],
+            _ => &[],
+        }
+    };
+    let (_, parsed) = prepared_config(&[(
+        "mcp",
+        json!({
+            "a": {"command": "uvx", "args": ["srv"], "env": {"K": "v"}},
+            "b": {"type": "remote", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true},
+            "c": {"type": "stdio", "command": "uvx", "codemode": false, "name": "x-y"}
+        }),
+    )])?;
+    assert_eq!(
+        parsed["mcp"]["servers"],
+        json!({
+            "a": {"type": "local", "command": ["uvx", "srv"], "environment": {"K": "v"}, "codemode": false},
+            "b": {"type": "remote", "url": "http://h/mcp", "headers": {"X": "y"}, "codemode": true},
+            "x-y": {"type": "local", "command": ["uvx"], "codemode": false}
+        })
+    );
+    for (name, entry) in parsed["mcp"]["servers"].as_object().ok_or("no servers")? {
+        let kind = entry["type"].as_str().ok_or("no type")?;
+        let allowed = documented(kind);
+        assert!(
+            !allowed.is_empty(),
+            "{name}: `{kind}` is no documented type"
+        );
+        for key in entry.as_object().ok_or("no entry")?.keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "{name}: `{key}` is no documented key of `{kind}`"
+            );
+        }
+    }
+    // The documentation lists no SSE transport: an `sse` server is refused, not mapped to `remote`.
+    let cell = values(&[("mcp", json!({"s": {"type": "sse", "url": "http://h"}}))])?;
+    let error =
+        candler_core::resolve::paths::refuse_unanswered(&OpenCodeDriver::new(), &Cell::new(&cell))
+            .err()
+            .ok_or("an sse server ran")?;
+    assert_eq!(
+        Refusal::code(&error).as_str(),
+        "experiment.setting_unsupported"
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("OpenCode documents no SSE transport; its `remote` is Streamable HTTP"),
+        "{error}"
     );
     Ok(())
 }

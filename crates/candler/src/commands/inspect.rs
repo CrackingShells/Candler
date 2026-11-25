@@ -211,6 +211,22 @@ fn outcome_of(record: &OutcomeRecord) -> Result<InspectOutcome, CliError> {
     })
 }
 
+/// The resolved `mcp.*` values of the cell, by path: the MCP configuration the run was installed
+/// with.
+fn mcp_of(whole: &Value) -> BTreeMap<String, Value> {
+    whole
+        .pointer("/comparable/values")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.get("path").and_then(Value::as_str)?;
+            let value = entry.get("value")?;
+            (path == "mcp" || path.starts_with("mcp.")).then(|| (path.to_owned(), value.clone())) // BORROW: the record owns its copy
+        })
+        .collect()
+}
+
 /// The record of the run `key`: whether it is sealed and counts, what it was read from, the
 /// provenance and the other values it measured, and its outcomes with their evidence.
 ///
@@ -270,6 +286,7 @@ pub fn render_run(store: &Store, key: &RunKey) -> Result<InspectRun, CliError> {
         ended_at: field("ended_at"),
         host: field("host"),
         import: field("import"),
+        mcp: mcp_of(&whole),
         provenance,
         measured,
         outcomes,
@@ -356,7 +373,12 @@ pub fn render_job(store: &Store, id: &JobId) -> Result<InspectJob, CliError> {
 /// The run record as lines: the run, its seal, what it measured and each outcome.
 fn text_of_run(run: &InspectRun) -> String {
     let mut lines = vec![format!("run {}", run.run), format!("sealed {}", run.sealed)];
-    for (path, value) in run.provenance.iter().chain(run.measured.iter()) {
+    for (path, value) in run
+        .mcp
+        .iter()
+        .chain(run.provenance.iter())
+        .chain(run.measured.iter())
+    {
         lines.push(format!("{path}\t{value}"));
     }
     for outcome in &run.outcomes {

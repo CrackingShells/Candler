@@ -7,7 +7,6 @@
 //! checks the two against each other.
 
 use crate::canonical::CanonicalError;
-use crate::catalog::CatalogError;
 use crate::evaluation::{EvaluationError, VersionMismatch};
 use crate::execution::ExecutionError;
 use crate::outcome::OutcomeError;
@@ -30,6 +29,7 @@ fn execution_path(error: &ExecutionError) -> Option<String> {
         ExecutionError::Zero { field, .. } | ExecutionError::NotPositive { field } => {
             file_field(field)
         }
+        ExecutionError::ReplicatesNotCount => Some(pointer_of(["replicates"])),
         ExecutionError::Format(inner) => Refusal::path(inner),
         ExecutionError::Values(inner) => Refusal::path(inner),
         ExecutionError::Canonical(inner) => Refusal::path(inner),
@@ -113,6 +113,12 @@ refusal_table! {
         Side::Experiment,
         "A cost cap is not a finite number above 0.",
         "-",
+    ),
+    ReplicatesNotCount { .. } => row(
+        "experiment.replicates_not_count",
+        Side::Experiment,
+        "`replicates` is not a whole number from 1 to 4294967295, such as a negative number, a fraction, a count beyond 32 bits or a string.",
+        "The `replicates` key.",
     ),
     NoLevels { .. } => row(
         "experiment.factor_without_levels",
@@ -631,56 +637,4 @@ fn non_root(path: &str) -> Option<String> {
     } else {
         Some(path.to_owned())
     }
-}
-
-/// A wrong tag sits in the `schema` field; the other faults name no place.
-fn catalog_path(error: &CatalogError) -> Option<String> {
-    match error {
-        CatalogError::SchemaTag { .. } => Some(pointer_of(["schema"])),
-        CatalogError::MissingField { .. }
-        | CatalogError::ReservedKey { .. }
-        | CatalogError::Null
-        | CatalogError::EmptyName { .. }
-        | CatalogError::DuplicateName { .. } => None,
-    }
-}
-
-refusal_table! {
-    CatalogError, path = catalog_path;
-    SchemaTag { .. } => row(
-        "catalog.schema_tag_mismatch",
-        Side::Environment,
-        "The tool catalog an image prints carries another `schema` marker than `tool-catalog-snapshot/1`.",
-        "`/schema`",
-    ),
-    MissingField { .. } => row(
-        "catalog.field_unset",
-        Side::Candler,
-        "A builder of a catalog snapshot was asked to build before a required field was set.",
-        "-",
-    ),
-    ReservedKey { .. } => row(
-        "catalog.extra_key_reserved",
-        Side::Candler,
-        "An extra key of a tool is the name of one of the tool's fields.",
-        "-",
-    ),
-    Null { .. } => row(
-        "catalog.field_null",
-        Side::Candler,
-        "An optional field of a catalog was written as null instead of being omitted.",
-        "-",
-    ),
-    EmptyName { .. } => row(
-        "catalog.name_empty",
-        Side::Environment,
-        "A server or tool name in the catalog an image prints is empty.",
-        "-",
-    ),
-    DuplicateName { .. } => row(
-        "catalog.name_repeated",
-        Side::Environment,
-        "A server or tool name in the catalog an image prints is repeated within its scope.",
-        "-",
-    ),
 }

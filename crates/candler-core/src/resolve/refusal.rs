@@ -46,7 +46,6 @@ fn resolve_error_path(error: &ResolveError) -> Option<String> {
         ResolveError::GroundTruth(inner) => Refusal::path(inner),
         ResolveError::Env(inner) => Refusal::path(inner),
         ResolveError::ReplicatesPath { path } => Some(pointer_of(path.split('.'))),
-        ResolveError::ReplicatesNotInteger { .. } => Some(pointer_of(["replicates"])),
         ResolveError::NonUtf8Path { .. }
         | ResolveError::DuplicateStep { .. }
         | ResolveError::DerivedTwice { .. }
@@ -239,12 +238,6 @@ wrapper_table! {
         "A `[fixed]` key or a `--set` names a path below `replicates`; `replicates` is one count and has no fields.",
         "The path that was written.",
     ),
-    ReplicatesNotInteger { .. } => row(
-        "experiment.replicates_not_integer",
-        Side::Experiment,
-        "`replicates` in `[fixed]` or in a `--set` is not a whole number, such as a string or a fraction.",
-        "The `replicates` key.",
-    ),
     Preflight { .. } => row(
         "resolve.preflight_failed",
         Side::Environment,
@@ -292,7 +285,6 @@ fn resolve_answer(error: &ResolveError) -> &dyn Refusal {
         | ResolveError::GroundTruth(..)
         | ResolveError::Env(..)
         | ResolveError::ReplicatesPath { .. }
-        | ResolveError::ReplicatesNotInteger { .. }
         | ResolveError::Format(..) => error,
     }
 }

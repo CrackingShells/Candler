@@ -1342,7 +1342,9 @@ pub struct Needs {
     pub trace: bool,
     /// Globs, relative to the run, of the artifacts the check reads.
     pub artifacts: Vec<String>,
-    /// The kinds of snapshot the check reads.
+    /// The kinds of snapshot the check reads. Always empty for a run Candler made; the field is
+    /// kept so a released helper and stored grading contexts stay valid, and it is removed once a
+    /// helper that treats it as optional is released.
     pub snapshots: Vec<Name>,
     /// The kinds of input the check reads.
     pub inputs: Vec<Name>,
@@ -1611,7 +1613,9 @@ struct RawRunContext {
     raw: Vec<ContextRaw>,
     /// The artifacts of the run.
     artifacts: Vec<ContextArtifact>,
-    /// The snapshots the run was made against.
+    /// The snapshots the run was made against. Always empty for a run Candler made; the field is
+    /// kept so a released helper and stored grading contexts stay valid, and it is removed once a
+    /// helper that treats it as optional is released.
     snapshots: Vec<ContextRef>,
     /// The inputs the run was made from.
     inputs: Vec<ContextRef>,

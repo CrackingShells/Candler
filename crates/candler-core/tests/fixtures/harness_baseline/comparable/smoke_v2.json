@@ -11,12 +11,6 @@
       "version": "2.1.311"
     },
     "inputs": [],
-    "snapshots": [
-      {
-        "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-        "kind": "catalog"
-      }
-    ],
     "treatment": {
       "commit": "1111111111111111111111111111111111111111",
       "name": "htn"

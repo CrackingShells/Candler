@@ -70,6 +70,9 @@ pub struct InspectRun {
     /// What the run was imported from, for an imported run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub import: Option<Value>,
+    /// The resolved `mcp.*` values the cell hashes, by path: the MCP configuration the run was
+    /// installed with.
+    pub mcp: BTreeMap<String, Value>,
     /// The measured values under `provenance.`, by path.
     pub provenance: BTreeMap<String, Value>,
     /// The other measured values, by path.

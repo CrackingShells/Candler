@@ -10,14 +10,14 @@ Level 1's seams are reviewed and P5 is decided from measured spend.
 - [ ] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh ls __roadmap__/integrity/causes/` shows the four level 1 leaves `done`
 
 ## Success Gates
-- ⬜ `seam_review_one.md` is `done`, with its findings fixed or recorded
-- ⬜ `snapshot/` is `done`
+- ✅ `seam_review_one.md` is `done`, with its findings fixed or recorded
+- ✅ `snapshot/` is `done`
 
 ## Status
 ```mermaid
 graph TD
-    seam_review_one[Seam review 1]:::planned
-    snapshot[Catalog snapshot]:::planned
+    seam_review_one[Seam review 1]:::done
+    snapshot[Catalog snapshot]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -28,8 +28,8 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `seam_review_one.md` | 📄 Leaf Task | ⬜ Planned |
-| `snapshot/` | 📁 Directory | ⬜ Planned |
+| `seam_review_one.md` | 📄 Leaf Task | ✅ Done |
+| `snapshot/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

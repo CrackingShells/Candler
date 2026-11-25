@@ -37,7 +37,7 @@ const DELAY_SECS: u64 = 100;
 /// The name or address the fake model's certificate is for and the job's containers reach it by:
 /// `host.docker.internal` on Docker Desktop, the default bridge's gateway address on a Linux
 /// engine, which resolves no such name in a container the product starts.
-fn fake_host(real: &Path) -> String {
+pub(super) fn fake_host(real: &Path) -> String {
     if cfg!(target_os = "linux") {
         must(
             real,
@@ -71,11 +71,11 @@ fn ere_escape(text: &str) -> String {
 
 /// What the test made and must give back, by exact id.
 #[derive(Default)]
-struct Made {
-    real: PathBuf,
-    job: Option<String>,
-    containers: Vec<String>,
-    images: Vec<String>,
+pub(super) struct Made {
+    pub(super) real: PathBuf,
+    pub(super) job: Option<String>,
+    pub(super) containers: Vec<String>,
+    pub(super) images: Vec<String>,
 }
 
 impl Drop for Made {
@@ -111,7 +111,7 @@ impl Drop for Made {
 }
 
 /// What `docker <args>` printed on stdout, for a command that must succeed.
-fn must(real: &Path, args: &[&str]) -> String {
+pub(super) fn must(real: &Path, args: &[&str]) -> String {
     let out = docker(real, args);
     assert!(
         out.status.success(),

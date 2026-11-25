@@ -132,7 +132,11 @@ start)
     *" -a "*)
         id=$(last "$@")
         if [ -f "$st/c/$id.work" ]; then
-            printf 'graded from the store\n' > "$(cat "$st/c/$id.work")/answer.txt"
+            if [ -d "$here/agent-files" ]; then
+                cp -Rp "$here/agent-files/." "$(cat "$st/c/$id.work")/"
+            else
+                printf 'graded from the store\n' > "$(cat "$st/c/$id.work")/answer.txt"
+            fi
         fi
         sleep 1
         echo exited > "$st/c/$(last "$@").state"
@@ -157,12 +161,12 @@ exec)
     esac
     ;;
 logs) ;;
+inspect)
+    # The start probe of a declared MCP server asks whether the container is still running.
+    echo true
+    ;;
 run)
-    if case " $* " in *" --version "*) true;; *) false;; esac; then
-        echo "2.1.311 (Claude Code)"
-    else
-        printf '{"schema":"tool-catalog-snapshot/1","captured_at":"2024-01-01T00:00:00Z","provider":"candler-image@1","servers":[]}'
-    fi
+    case " $* " in *" --version "*) echo "2.1.311 (Claude Code)" ;; esac
     ;;
 *)
     echo "UNHANDLED: $*" >> "$here/docker.log"
@@ -326,9 +330,24 @@ impl World {
         let sealed = self.sealed_runs();
         assert!(
             sealed >= at_least,
-            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}",
-            self.calls()
+            "no run sealed: {sealed} sealed, {at_least} expected\ncalls:\n{}\nevents:\n{}",
+            self.calls(),
+            self.job_events()
         );
+    }
+
+    /// The events of every job of the store, as the supervisor wrote them.
+    fn job_events(&self) -> String {
+        let mut text = String::new();
+        let Ok(jobs) = fs::read_dir(self.store().join("jobs")) else {
+            return text;
+        };
+        for job in jobs.flatten() {
+            if let Ok(events) = fs::read_to_string(job.path().join("events.jsonl")) {
+                text.push_str(&events);
+            }
+        }
+        text
     }
 
     /// What the fake client was asked, one call per line.
@@ -399,6 +418,34 @@ impl World {
         git(&self.skills, &["commit", "-q", "-a", "-m", "moved"]);
         git(&self.skills, &["tag", "-f", "v1"]);
         (before, rev_parse(&self.skills, "v1^{commit}"))
+    }
+
+    /// Makes the fake agent leave exactly `files` in its workspace, as `(path, bytes)`, in place
+    /// of the file it writes by default; no file at all when `files` is empty.
+    pub fn agent_leaves(&self, files: &[(&str, &[u8])]) {
+        let dir = self.bin.join("agent-files");
+        fs::create_dir_all(&dir).unwrap();
+        for (path, bytes) in files {
+            let at = dir.join(path);
+            fs::create_dir_all(at.parent().unwrap()).unwrap();
+            fs::write(at, bytes).unwrap();
+        }
+    }
+
+    /// Gives the file the fake agent leaves at `path` the execute bit; the fake's copy keeps the
+    /// mode of the file as a real agent's workspace does.
+    pub fn agent_leaves_executable(&self, path: &str) {
+        let at = self.bin.join("agent-files").join(path);
+        fs::set_permissions(at, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Makes a new commit in the skills repository and tags it `tag`, leaving the earlier tags
+    /// where they are.
+    pub fn tag_new_commit(&self, tag: &str) {
+        let skill = self.skills.join(".claude").join("skills").join("demo");
+        fs::write(skill.join("SKILL.md"), format!("# {tag}\n")).unwrap();
+        git(&self.skills, &["commit", "-q", "-a", "-m", tag]);
+        git(&self.skills, &["tag", tag]);
     }
 
     /// Removes the world's directory.

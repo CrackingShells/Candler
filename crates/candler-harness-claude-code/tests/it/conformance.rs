@@ -3,8 +3,8 @@
 //! recorded sessions.
 //!
 //! Every expectation is read from the fixtures' hand-written `expected.toml` facts or from the raw
-//! lines with `serde_json`, never from the driver. The inventory a case expects is the `tools` and
-//! `mcp_servers` of the first init line, taken from the raw line.
+//! lines with `serde_json`, never from the driver. The inventory a case expects is the `tools` of
+//! the first init line, taken from the raw line.
 
 use std::error::Error;
 use std::fs;
@@ -17,8 +17,8 @@ use candler_harness::conformance::{
 };
 use candler_harness::driver::HarnessDriver;
 use candler_harness::spec::{
-    Cell, CensusSource, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind, PendingState,
-    ProcessEnd, ProcessExit, Workspace,
+    Cell, CensusSource, CollectSpec, FileRoot, GatewayEnv, InitReport, PendingItem, PendingKind,
+    PendingState, PreparedFile, ProcessEnd, ProcessExit, Workspace,
 };
 use candler_harness::spec::{SessionClose, SessionRecord};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
@@ -26,7 +26,7 @@ use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, ReasonCode};
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
-use candler_schemas::trace::{EndedBy, SessionId};
+use candler_schemas::trace::{EndedBy, SessionId, ToolOrigin};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 
@@ -84,7 +84,6 @@ fn first_init(bytes: &[u8]) -> Res<InitReport> {
             let tools = object.get("tools").ok_or("the init line has no tools")?;
             return Ok(InitReport::new(
                 tools.clone(), // BORROW: .clone() copies the list out of the line
-                object.get("mcp_servers").cloned(),
                 CensusSource::Harness,
             )?);
         }
@@ -271,15 +270,71 @@ fn cases() -> Res<Vec<Case>> {
                 ("o3", PendingState::new(1, true, true, vec![])),
             ],
         )?,
+        // The shared oracle: a scripted agent writes these files into a real workspace beside a
+        // skill file the harness leaves under `.claude`, and the core's file collector applied to
+        // the driver's specs must store exactly the agent's files.
+        Case::new(
+            "collect_stores_the_files_the_agent_wrote".to_owned(),
+            ReaderSource::Live,
+            stdout()?,
+            Vec::new(),
+        )
+        .detects(false)
+        .with_workspace(
+            vec![
+                PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+                PreparedFile::new("outputs/answer.txt".parse()?, b"stamp-7f3a".to_vec(), false),
+            ],
+            vec![PreparedFile::new(
+                ".claude/skills/s/SKILL.md".parse()?,
+                b"skill".to_vec(),
+                false,
+            )],
+        ),
+        mcp_call_case()?,
     ])
+}
+
+/// A stream with one call to the tool `t` of the server `s`, spelled `mcp__s__t`.
+fn mcp_call_case() -> Res<Case> {
+    let session = "33333333-3333-4333-8333-333333333333";
+    let lines = [
+        json!({"type": "system", "subtype": "init", "model": "m", "claude_code_version": "2.1.230",
+               "tools": ["Bash", "mcp__s__t"], "session_id": session}),
+        json!({"type": "assistant", "parent_tool_use_id": null, "session_id": session,
+               "message": {"id": "msg_1", "role": "assistant", "model": "m", "content": [
+                   {"type": "tool_use", "id": "toolu_1", "name": "mcp__s__t", "input": {}}]}}),
+    ];
+    let bytes = lines
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("\n")
+        + "\n";
+    Ok(Case::new(
+        "mcp_call".to_owned(), // BORROW: .to_owned() makes the owned case name
+        ReaderSource::Live,
+        stdout()?,
+        bytes.into_bytes(),
+    )
+    .with_observed_ids(vec![sid(session)?])
+    .with_init(InitReport::new(
+        json!(["Bash", "mcp__s__t"]),
+        CensusSource::Harness,
+    )?)
+    .with_mcp_call(
+        vec!["s".to_owned()], // BORROW: .to_owned() makes the owned name
+        ToolOrigin::mcp_tool("s".to_owned(), "t".to_owned()), // BORROW: .to_owned() makes the owned names
+    ))
 }
 
 /// Guards: R01 §Harness drivers, §Session runner — the Claude Code driver passes the shared suite
 /// on its recorded streams and sessions: sessions and ends as `expected.toml` lists them, the
 /// inventory of the first init line labelled as the harness's, a session spec whose command and
 /// hook files carry no secret, a tracker that follows the recorded Stop payloads and the turn ends,
-/// and the headless names the core owns. Oracle: the fixtures' hand-written `expected.toml` and the
-/// raw lines read with `serde_json`.
+/// the headless names the core owns, and the files the shared oracle's scripted agent wrote are
+/// kept. Oracle: the fixtures' hand-written `expected.toml` and the raw lines read with `serde_json`,
+/// and the agent-written files of the shared case.
 #[test]
 fn conformance_claude_code_fixtures() -> Res<()> {
     let driver = ClaudeCodeDriver::new();
@@ -289,7 +344,7 @@ fn conformance_claude_code_fixtures() -> Res<()> {
     let canaries = [CANARY.to_owned()]; // BORROW: .to_owned() makes the owned canary
     run(
         &driver,
-        &Setup::new(&cell, &workspace, &canaries),
+        &Setup::new(&cell, &workspace, &canaries).with_collector(stored_paths),
         &cases()?,
     )?;
     Ok(())
@@ -686,4 +741,14 @@ fn conformance_claude_session_command_keeps_the_headless_arguments() -> Res<()> 
         ]
     );
     Ok(())
+}
+
+/// The paths a run stores of a tree: the core's collector over the driver's file specs.
+fn stored_paths(root: &Path, specs: &[CollectSpec]) -> std::io::Result<Vec<String>> {
+    Ok(
+        candler_core::runner::exec::gather::collect_files(root, specs)?
+            .into_iter()
+            .map(|output| output.path)
+            .collect(),
+    )
 }

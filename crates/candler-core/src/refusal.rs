@@ -328,7 +328,6 @@ fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
 /// The coded type of the schemas crate that `error` is, or `None`.
 fn schemas_coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal> {
     use candler_schemas::canonical::CanonicalError;
-    use candler_schemas::catalog::CatalogError;
     use candler_schemas::evaluation::{EvaluationError, VersionMismatch};
     use candler_schemas::execution::ExecutionError;
     use candler_schemas::outcome::OutcomeError;
@@ -351,7 +350,6 @@ fn schemas_coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refusal
         .downcast_ref::<FormatError>()
         .map(as_refusal)
         .or_else(|| error.downcast_ref::<CanonicalError>().map(as_refusal))
-        .or_else(|| error.downcast_ref::<CatalogError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<VersionMismatch>().map(as_refusal))
 }
 

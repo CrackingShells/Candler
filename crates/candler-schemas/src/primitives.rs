@@ -736,7 +736,7 @@ impl FromStr for NameVersion {
 }
 
 text_type!(NameToken {
-    description: "A catalog provider reference, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
+    description: "A name and a version token, `name@token`, split at the last `@`: the name is non-empty and holds neither `@` nor white space, and the token matches `[0-9A-Za-z.+-]+`.",
     pattern: NAME_TOKEN_PATTERN,
     fields: { name: String, version: String },
 });

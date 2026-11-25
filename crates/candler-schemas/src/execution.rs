@@ -132,6 +132,9 @@ pub enum ExecutionError {
         /// The name of the field.
         field: &'static str,
     },
+    /// A `replicates` value that is not a whole number from 1 to 4294967295.
+    #[error("`replicates` must be a whole number from 1 to 4294967295")]
+    ReplicatesNotCount,
     /// A factor with no level, which would leave the experiment with no cell.
     #[error("factor `{factor}` has no level")]
     NoLevels {
@@ -1102,17 +1105,15 @@ struct Plan {
 /// The replicates `count` stands for: at least 1 and at most [`u32::MAX`].
 ///
 /// # Errors
-/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::NotPositive`] when it does
-/// not fit in 32 bits.
+/// [`ExecutionError::Zero`] when `count` is 0, and [`ExecutionError::ReplicatesNotCount`] when it
+/// does not fit in 32 bits.
 pub fn check_replicates(count: u64) -> Result<u32, ExecutionError> {
     match u32::try_from(count) {
         Ok(0) => Err(ExecutionError::Zero {
             field: "replicates",
         }),
         Ok(replicates) => Ok(replicates),
-        Err(_) => Err(ExecutionError::NotPositive {
-            field: "replicates",
-        }),
+        Err(_) => Err(ExecutionError::ReplicatesNotCount),
     }
 }
 
@@ -1818,7 +1819,7 @@ impl HarnessIdentity {
     }
 }
 
-/// A digest and the kind of thing it identifies: a catalog snapshot or an input.
+/// A digest and the kind of thing it identifies: a catalog an imported run recorded, or an input.
 #[derive(
     Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, JsonSchema,
 )]
@@ -1882,7 +1883,8 @@ struct ComparableBody<'a> {
     values: &'a [ResolvedValue],
     harness: &'a HarnessIdentity,
     treatment: &'a TreatmentRef,
-    snapshots: &'a [DigestRef],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshots: Option<&'a [DigestRef]>,
     inputs: &'a [DigestRef],
     environments: &'a [EnvironmentRef],
 }
@@ -1920,7 +1922,7 @@ fn environment_order(first: &EnvironmentRef, second: &EnvironmentRef) -> std::cm
         .then_with(|| first.lock_digest.cmp(&second.lock_digest))
 }
 
-/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
+/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog digests an imported run recorded, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
 #[derive(Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields, rename = "Comparable")]
 struct RawComparable {
@@ -1933,11 +1935,15 @@ struct RawComparable {
     harness: HarnessIdentity,
     /// The treatment the run applied.
     treatment: TreatmentRef,
-    /// The digests of the catalog snapshots, sorted by kind and digest.
+    /// The digests of the catalog snapshots an imported run recorded, sorted by kind and digest.
+    /// The key is absent for a run Candler made. It is present, possibly empty, only for an
+    /// imported run: the manifest importer and the raw-stream importer write it, and the cell
+    /// hashes with it when present and without it when absent.
+    #[serde(default, deserialize_with = "present")]
     #[schemars(extend(
         "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
     ))]
-    snapshots: Vec<DigestRef>,
+    snapshots: Option<Vec<DigestRef>>,
     /// The digests of the inputs, sorted by kind and digest.
     #[schemars(extend(
         "$comment" = "Sorted by kind then digest in code point order, without a repeated entry; the Rust reader refuses a list that is not."
@@ -1966,7 +1972,7 @@ impl TryFrom<MapOnly<RawComparable>> for Comparable {
     }
 }
 
-/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog snapshots, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
+/// What the cell digest hashes: every resolved value, the harness, the treatment, the catalog digests an imported run recorded, the inputs and the plug-in environments of a run, each list sorted and without duplicates.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(try_from = "MapOnly<RawComparable>")]
 #[non_exhaustive]
@@ -1974,7 +1980,8 @@ pub struct Comparable {
     values: Vec<ResolvedValue>,
     harness: HarnessIdentity,
     treatment: TreatmentRef,
-    snapshots: Vec<DigestRef>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    snapshots: Option<Vec<DigestRef>>,
     inputs: Vec<DigestRef>,
     environments: Vec<EnvironmentRef>,
     #[serde(skip)]
@@ -1994,7 +2001,7 @@ impl Comparable {
         values: Vec<ResolvedValue>,
         harness: HarnessIdentity,
         treatment: TreatmentRef,
-        snapshots: Vec<DigestRef>,
+        snapshots: Option<Vec<DigestRef>>,
         inputs: Vec<DigestRef>,
         environments: Vec<EnvironmentRef>,
     ) -> Result<Self, ExecutionError> {
@@ -2006,12 +2013,14 @@ impl Comparable {
             ResolvedValue::path,
             |value| value.path().to_string(),
         )?;
-        for (list, items) in [("snapshots", &snapshots), ("inputs", &inputs)] {
+        for (list, items) in [
+            ("snapshots", snapshots.as_deref().unwrap_or_default()),
+            ("inputs", inputs.as_slice()),
+        ] {
             check_ascending(
                 list,
                 "kind and digest",
-                // BORROW: explicit .as_slice() instead of Deref coercion
-                items.as_slice(),
+                items,
                 |entry| (entry.kind.as_str(), entry.digest.as_str()),
                 |entry| entry.digest.to_string(),
             )?;
@@ -2029,7 +2038,8 @@ impl Comparable {
             values: values.as_slice(),
             harness: &harness,
             treatment: &treatment,
-            snapshots: snapshots.as_slice(),
+            // BORROW: explicit .as_deref() instead of Deref coercion
+            snapshots: snapshots.as_deref(),
             // BORROW: explicit .as_slice() instead of Deref coercion
             inputs: inputs.as_slice(),
             // BORROW: explicit .as_slice() instead of Deref coercion
@@ -2052,8 +2062,8 @@ impl Comparable {
 
     /// Builds a cell from resolved values.
     ///
-    /// The path `harness` fills the harness, `treatment` the treatment, `snapshots` the snapshot
-    /// digests, `inputs` the input digests and `environments` the plug-in environments; each
+    /// The path `harness` fills the harness, `treatment` the treatment, `snapshots` the catalog
+    /// digests of an imported run (no run Candler makes sets it), `inputs` the input digests and `environments` the plug-in environments; each
     /// takes one value, read as the typed field reads. Every other path goes to `values`, and a
     /// path below one of the five roots is refused. A settings path is not a value and never
     /// reaches this function.
@@ -2181,11 +2191,11 @@ impl Comparable {
         &self.treatment
     }
 
-    /// The catalog snapshot digests, sorted.
+    /// The catalog digests an imported run recorded, sorted.
     #[must_use]
     pub fn snapshots<'a>(&'a self) -> &'a [DigestRef] {
-        // BORROW: explicit .as_slice() instead of Deref coercion
-        self.snapshots.as_slice()
+        // BORROW: explicit .as_deref() instead of Deref coercion
+        self.snapshots.as_deref().unwrap_or_default()
     }
 
     /// The input digests, sorted.
@@ -2238,7 +2248,7 @@ pub struct ComparableBuilder {
     values: Vec<ResolvedValue>,
     harness: Option<HarnessIdentity>,
     treatment: Option<TreatmentRef>,
-    snapshots: Vec<DigestRef>,
+    snapshots: Option<Vec<DigestRef>>,
     inputs: Vec<DigestRef>,
     environments: Vec<EnvironmentRef>,
 }
@@ -2265,10 +2275,11 @@ impl ComparableBuilder {
         self
     }
 
-    /// Adds a catalog snapshot digest.
+    /// Sets the catalog digests an imported run recorded, even when the list is empty; a cell
+    /// without this call carries no `snapshots` key.
     #[must_use]
-    pub fn snapshot(mut self, snapshot: DigestRef) -> Self {
-        self.snapshots.push(snapshot);
+    pub fn snapshots(mut self, snapshots: Vec<DigestRef>) -> Self {
+        self.snapshots = Some(snapshots);
         self
     }
 
@@ -2297,7 +2308,7 @@ impl ComparableBuilder {
             "treatment" => self.treatment = Some(serde_json::from_value(json).map_err(malformed)?),
             "snapshots" => {
                 // The list is read as written; `build` sorts and refuses a duplicate.
-                self.snapshots = serde_json::from_value(json).map_err(malformed)?;
+                self.snapshots = Some(serde_json::from_value(json).map_err(malformed)?);
             }
             "inputs" => self.inputs = serde_json::from_value(json).map_err(malformed)?,
             "environments" => {
@@ -2332,7 +2343,9 @@ impl ComparableBuilder {
         let harness = harness.ok_or(ExecutionError::MissingField { field: "harness" })?;
         let treatment = treatment.ok_or(ExecutionError::MissingField { field: "treatment" })?;
         values.sort_by(|a, b| a.path().cmp(b.path()));
-        snapshots.sort();
+        if let Some(list) = snapshots.as_mut() {
+            list.sort();
+        }
         inputs.sort();
         environments.sort_by(environment_order);
         Comparable::assemble(values, harness, treatment, snapshots, inputs, environments)
@@ -2590,7 +2603,7 @@ struct RawRunManifest {
     comparable: Comparable,
     /// Where each value came from: one entry per value, and one or more entries under each typed root the cell holds; never an entry for a setting.
     #[schemars(extend(
-        "$comment" = "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots`, `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs."
+        "$comment" = "Each path of `comparable.values` has exactly one entry, and each of `harness`, `treatment` and the non-empty lists `snapshots` (present only in an imported run), `inputs` and `environments` has an entry at the root path or at a path under it; no other path appears and no path repeats. JSON Schema cannot state this, and the Rust reader refuses a list that differs."
     ))]
     sources: Vec<SourceEntry>,
     /// The secrets the run needed and whether each was present; never their values.

@@ -153,7 +153,6 @@ fn comparable() -> Value {
         "values": [{"path": "plan.a", "value": 1}],
         "harness": {"name": "h", "version": "1.0.0"},
         "treatment": {"name": "t"},
-        "snapshots": [],
         "inputs": [],
         "environments": []
     })
@@ -766,9 +765,10 @@ fn container_role_egress_round_trips_and_the_older_roles_still_read() {
 }
 
 /// Guards: I12 — one validator decides a replicate count, for the file and for `--set`: 0 is
-/// refused as zero, a count beyond 32 bits is refused, and a count from 1 to `u32::MAX` is kept.
-/// Oracle: the counts written below.
-/// Bite: accept 0 in the validator.
+/// refused as zero, a count beyond 32 bits is refused as no count (its own code, at `/replicates`,
+/// and a message that gives the range), and a count from 1 to `u32::MAX` is kept.
+/// Oracle: the counts, the code, the pointer and the range written below.
+/// Bite: accept 0 in the validator, or refuse a count beyond 32 bits with the cost code.
 #[test]
 fn replicates_are_checked_once() {
     use candler_schemas::execution::{ExecutionError, check_replicates};
@@ -778,7 +778,16 @@ fn replicates_are_checked_once() {
             field: "replicates"
         })
     ));
-    assert!(check_replicates(u64::from(u32::MAX) + 1).is_err());
+    let beyond = check_replicates(u64::from(u32::MAX) + 1).expect_err("a count beyond 32 bits");
+    assert_eq!(
+        candler_schemas::refusal::Refusal::code(&beyond).as_str(),
+        "experiment.replicates_not_count"
+    );
+    assert_eq!(
+        candler_schemas::refusal::Refusal::path(&beyond).as_deref(),
+        Some("/replicates")
+    );
+    assert!(beyond.to_string().contains("1 to 4294967295"), "{beyond}");
     assert_eq!(check_replicates(1).ok(), Some(1));
     assert_eq!(check_replicates(u64::from(u32::MAX)).ok(), Some(u32::MAX));
 }

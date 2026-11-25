@@ -14,6 +14,7 @@ use candler_harness::spec::{Cell, CollectSpec, EnvValue, Observed, StopSignal, W
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::{GitCommit, TreatmentRef};
 use candler_schemas::primitives::{FieldPath, Name};
+use candler_schemas::refusal::Refusal;
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::json;
 
@@ -137,6 +138,38 @@ fn b21_reference_command_line() -> Res<()> {
         .command;
     // BORROW: `.as_slice()` views the expected arguments as a slice
     assert_eq!(command.argv(), expected("plan")?.as_slice());
+    Ok(())
+}
+
+/// Guards: a stored cell, which replays without going through resolve, that holds a permission mode
+/// or an effort no mode or level names is refused by the driver with `experiment.cell_value_invalid`
+/// at the field, as a fresh cell is, and is not run as the default mode or without an effort.
+/// Oracle: the code and the field pointers written by hand.
+/// Bite: read the text with a `from_text` that falls back to the default or to unset.
+#[test]
+fn a_stored_cell_with_an_unnamed_mode_or_effort_is_refused_at_its_field() -> Res<()> {
+    let driver = ClaudeCodeDriver::new();
+    let root = Path::new("/work/run");
+    for (path, pointer) in [
+        ("permission_mode", "/permission_mode"),
+        ("model.effort", "/model/effort"),
+    ] {
+        let mut stored = values("plan")?;
+        stored.retain(|value| value.path().as_str() != path);
+        stored.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(json!("nonsense"))?,
+        ));
+        let Err(error) = driver.plan(&Cell::new(&stored), &Workspace::new(root)) else {
+            return Err(format!("{path}: an unnamed text planned").into());
+        };
+        assert_eq!(
+            Refusal::code(&error).as_str(),
+            "experiment.cell_value_invalid",
+            "{path}"
+        );
+        assert_eq!(Refusal::path(&error).as_deref(), Some(pointer), "{path}");
+    }
     Ok(())
 }
 
@@ -426,7 +459,7 @@ fn a_server_name_renders_the_server_under_it() -> Res<()> {
     };
     assert_eq!(
         read(".mcp.json")?,
-        json!({"mcpServers": {"x-y": {"command": "uvx"}}})
+        json!({"mcpServers": {"x-y": {"type": "stdio", "command": "uvx"}}})
     );
     assert_eq!(
         read("settings.json")?,
@@ -442,5 +475,117 @@ fn a_server_name_renders_the_server_under_it() -> Res<()> {
         JsonValue::new(json!("x-y"))?,
     ));
     assert!(driver.check_settings(&Cell::new(&cell)).is_err());
+    Ok(())
+}
+
+/// The `.mcp.json` the driver writes for a cell that sets `extra` besides the default values,
+/// parsed.
+fn mcp_json(extra: &[(&str, serde_json::Value)]) -> Res<serde_json::Value> {
+    let mut cell = values("default")?;
+    for (path, value) in extra {
+        cell.push(ResolvedValue::recorded(
+            FieldPath::from_str(path)?,
+            JsonValue::new(value.clone())?, // BORROW: .clone() copies the value into the cell
+        ));
+    }
+    let plan =
+        ClaudeCodeDriver::new().plan(&Cell::new(&cell), &Workspace::new(Path::new("/work/run")))?;
+    let file = plan
+        .prepared
+        .files
+        .iter()
+        .find(|file| file.path.as_str().ends_with(".mcp.json"))
+        .ok_or("no .mcp.json")?;
+    Ok(serde_json::from_slice(&file.contents)?)
+}
+
+/// Guards: the `.mcp.json` of Claude Code holds, for each server, the keys its documentation gives
+/// the server's `type` and no other: `stdio` takes `command`, `args` and `env`; `http` and `sse`
+/// take `url` and `headers`; `local` is written as `stdio` and `remote` as `http`; the server's
+/// `name` is its key and `codemode` is no key.
+/// Oracle: the Claude Code MCP documentation, `code.claude.com/docs/en/mcp` and
+/// `code.claude.com/docs/en/agent-sdk/typescript` (`McpStdioServerConfig`, `McpSSEServerConfig`,
+/// `McpHttpServerConfig`), read through Context7 `/websites/code_claude`; the literal JSON below.
+/// Bite: `serde_json::to_value(servers)` back in `render_mcp`.
+#[test]
+fn the_mcp_file_holds_the_keys_claude_code_documents() -> Res<()> {
+    let documented = |kind: &str| -> &'static [&'static str] {
+        match kind {
+            "stdio" => &["type", "command", "args", "env"],
+            "http" | "sse" => &["type", "url", "headers"],
+            _ => &[],
+        }
+    };
+    let written = mcp_json(&[
+        ("mcp.servers.a.type", json!("local")),
+        ("mcp.servers.a.command", json!("uvx")),
+        ("mcp.servers.a.args", json!(["srv"])),
+        ("mcp.servers.a.env", json!({"K": "v"})),
+        ("mcp.servers.a.codemode", json!(false)),
+        ("mcp.servers.a.name", json!("x-y")),
+        ("mcp.servers.b.type", json!("remote")),
+        ("mcp.servers.b.url", json!("http://h/mcp")),
+        ("mcp.servers.b.headers", json!({"X": "y"})),
+        ("mcp.servers.c.type", json!("sse")),
+        ("mcp.servers.c.url", json!("http://h/sse")),
+        ("mcp.servers.d.command", json!("uvx")),
+    ])?;
+    assert_eq!(
+        written,
+        json!({"mcpServers": {
+            "x-y": {"type": "stdio", "command": "uvx", "args": ["srv"], "env": {"K": "v"}},
+            "b": {"type": "http", "url": "http://h/mcp", "headers": {"X": "y"}},
+            "c": {"type": "sse", "url": "http://h/sse"},
+            "d": {"type": "stdio", "command": "uvx"},
+        }})
+    );
+    for (name, entry) in written["mcpServers"].as_object().ok_or("no servers")? {
+        let kind = entry["type"].as_str().ok_or("no type")?;
+        let allowed = documented(kind);
+        assert!(
+            !allowed.is_empty(),
+            "{name}: `{kind}` is no documented type"
+        );
+        for key in entry.as_object().ok_or("no entry")?.keys() {
+            assert!(
+                allowed.contains(&key.as_str()),
+                "{name}: `{key}` is no documented key of `{kind}`"
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Guards: Claude Code has no code mode, so a cell that sets `codemode = true` on a server is
+/// refused with the driver's reason, and a cell that leaves `codemode` out or sets it to `false`
+/// is not.
+/// Oracle: the reason written by hand, from the leaf's gate.
+/// Bite: `Answer::Mapped` for `Codemode(true)` in the driver's `answer`.
+#[test]
+fn claude_code_refuses_codemode_true() -> Res<()> {
+    let refusal_of = |codemode: Option<serde_json::Value>| -> Res<Option<String>> {
+        let mut cell = values("default")?;
+        let mut entries = vec![("mcp.servers.a.command", json!("uvx"))];
+        entries.extend(codemode.map(|value| ("mcp.servers.a.codemode", value)));
+        for (path, value) in entries {
+            cell.push(ResolvedValue::recorded(
+                FieldPath::from_str(path)?,
+                JsonValue::new(value)?,
+            ));
+        }
+        Ok(candler_core::resolve::paths::refuse_unanswered(
+            &ClaudeCodeDriver::new(),
+            &Cell::new(&cell),
+        )
+        .err()
+        .map(|error| error.to_string()))
+    };
+    let refused = refusal_of(Some(json!(true)))?.ok_or("codemode = true ran")?;
+    assert!(
+        refused.contains("Claude Code offers MCP tools directly; it has no code mode"),
+        "{refused}"
+    );
+    assert_eq!(refusal_of(None)?, None);
+    assert_eq!(refusal_of(Some(json!(false)))?, None);
     Ok(())
 }

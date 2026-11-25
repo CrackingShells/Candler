@@ -370,8 +370,8 @@ use candler_core::supervise::stop::Exit;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, HarnessId, Observed, ProcessExit, StopSpec,
-    Workspace,
+    AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, HarnessId, Observed,
+    ProcessExit, StopSpec, Workspace,
 };
 use candler_schemas::primitives::{ContainerId, Marker, Timestamp};
 use candler_schemas::raw::StreamName;
@@ -566,8 +566,12 @@ impl HarnessDriver for Collecting {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.0.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
     fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
         self.0.gateway()
@@ -584,8 +588,12 @@ impl HarnessDriver for Collecting {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.0.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.0.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.0.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.0.classify_exit(exit, sessions)
@@ -1097,6 +1105,7 @@ fn declared_input_empty_match_is_no_leak_and_a_real_copy_is() {
         outputs: vec![OutputDigest {
             path: "copy.txt".to_owned(),
             digest: sha.parse().expect("a digest"),
+            executable: false,
         }],
         tree: candler_schemas::execution::RunTree::builder()
             .build()

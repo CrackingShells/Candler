@@ -25,12 +25,15 @@ use candler_core::resolve::layers::Resolution;
 use candler_core::resolve::preflight::{ResolveError, StepError, StepReport};
 use candler_core::resolve::steps::gateway::register_gateway_step;
 use candler_core::resolve::steps::secrets::register_secret_step;
+use candler_core::runner::plan::{check_cells, treatment_levels};
 use candler_core::supervise::{EventSink, Supervisor};
 use candler_schemas::execution::{EventPayload, ExperimentFile};
 use candler_schemas::primitives::{FieldPath, RunKey};
 use candler_schemas::values::{SourceEntry, ValueSource};
 
-use super::preflight::{check_factors, foreground, request_settings, requested_harness};
+use super::preflight::{
+    check_factors, foreground, input_for_level, request_settings, requested_harness,
+};
 use super::refusal::CliRefusal;
 use super::term::Paint;
 use super::{CliError, Exit, OutputArgs, common};
@@ -268,15 +271,27 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
         .map_err(failed_here)?;
 
     let mut failures = plugin_dir_failures(&config);
-    let mut resolution = None;
     let mut summary = None;
-    match resolver.resolve(input).await {
-        Ok(found) => resolution = Some(found),
-        Err(ResolveError::Preflight { reports, errors }) => {
-            failures.extend(render_failures(&reports, &errors));
-            summary = Some(ResolveError::Preflight { reports, errors });
+    let declared_levels = treatment_levels(&file);
+    let given = if declared_levels.is_empty() {
+        vec![input.clone()] // BORROW: the single resolution starts from the same input
+    } else {
+        declared_levels
+            .iter()
+            .map(|level| input_for_level(&input, level, experiment_dir.as_path()))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    let mut levels = Vec::with_capacity(given.len());
+    for level in given {
+        match resolver.resolve(level).await {
+            Ok(found) => levels.push(found),
+            Err(ResolveError::Preflight { reports, errors }) => {
+                failures.extend(render_failures(&reports, &errors));
+                summary = Some(ResolveError::Preflight { reports, errors });
+                break;
+            }
+            Err(other) => return Err(CliError::refused_by(other)),
         }
-        Err(other) => return Err(CliError::refused_by(other)),
     }
 
     let mut stdout = std::io::stdout().lock();
@@ -290,9 +305,11 @@ pub async fn run(args: Args, store: Option<&Path>) -> Result<Exit, CliError> {
             )),
         });
     }
-    let Some(resolution) = resolution else {
+    // BORROW: the levels own their resolutions
+    let Some(resolution) = levels.first().cloned() else {
         return Ok(Exit::Success);
     };
+    check_cells(&file, levels.as_slice(), driver.as_ref()).map_err(CliError::refused_by)?; // BORROW: explicit .as_slice()
     if text {
         for line in render_values(&resolution, Paint::detect()) {
             writeln!(stdout, "{line}").map_err(failed_here)?;

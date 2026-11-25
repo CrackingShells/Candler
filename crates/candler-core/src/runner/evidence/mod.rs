@@ -1,7 +1,6 @@
-//! The evidence a run leaves: its catalog, its census, the leak check, its session measures and
+//! The evidence a run leaves: its census, the leak check, its session measures and
 //! its tree.
 
-pub mod catalog;
 pub mod census;
 pub mod leak;
 mod measure;
@@ -23,6 +22,8 @@ pub struct OutputDigest {
     pub path: String,
     /// The digest of the content.
     pub digest: Digest,
+    /// Whether the file has an execute bit for the owner, the group or others.
+    pub executable: bool,
 }
 
 /// A file the run was given and its digest.

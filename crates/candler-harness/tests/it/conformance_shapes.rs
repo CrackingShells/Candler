@@ -15,13 +15,13 @@ use std::time::Duration;
 use candler_harness::conformance::{
     Case, ExpectedSession, ReaderSource, RecordBytes, Setup, TrackStep, run,
 };
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Action, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError, EnvEntry,
-    GatewayEnv, InitReport, Observed, ObservedEnd, PendingItem, PendingKind, PendingState,
-    PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec, SessionTracker, StateKind,
-    StatePath, StopSignal, StopSpec, Workspace,
+    Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, CommandSpecError,
+    DriverFact, EnvEntry, GatewayEnv, HarnessId, InitReport, Observed, ObservedEnd, PendingItem,
+    PendingKind, PendingState, PreparedFile, ProcessEnd, ProcessExit, SessionClose, SessionSpec,
+    SessionTracker, StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::FieldPath;
 use candler_schemas::process::ExitStatus;
@@ -30,7 +30,7 @@ use candler_schemas::trace::{EndedBy, Session, SessionId};
 use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 
-use support::{DocumentDriver, LinesDriver, OpenShapedDriver, TestError, TestResult};
+use support::{DocumentDriver, LinesDriver, LinesReader, OpenShapedDriver, TestError, TestResult};
 
 /// A value that stands for the gateway's token; it must appear in no command.
 const CANARY: &str = "sk-conformance-canary-7f3a";
@@ -107,7 +107,21 @@ fn run_suite(
     let cell = Cell::new(&values);
     let workspace = Workspace::new(Path::new("."));
     let canaries = [String::from(CANARY)];
-    run(driver, &Setup::new(&cell, &workspace, &canaries), cases)
+    run(
+        driver,
+        &Setup::new(&cell, &workspace, &canaries).with_collector(stored_paths),
+        cases,
+    )
+}
+
+/// What a run stores of a tree: the core's collector over the driver's file specs, as paths.
+fn stored_paths(root: &Path, specs: &[CollectSpec]) -> std::io::Result<Vec<String>> {
+    Ok(
+        candler_core::runner::exec::gather::collect_files(root, specs)?
+            .into_iter()
+            .map(|output| output.path)
+            .collect(),
+    )
 }
 
 /// The Lines-shaped case: the sessions of `guard_two_shapes`, with an init event naming the tools.
@@ -121,11 +135,7 @@ fn lines_cases() -> Result<Vec<Case>, TestError> {
     ]
     .join("\n")
         + "\n";
-    let init = InitReport::new(
-        json!(["Bash", "Read"]),
-        Some(json!([])),
-        CensusSource::Harness,
-    )?;
+    let init = InitReport::new(json!(["Bash", "Read"]), CensusSource::Harness)?;
     Ok(vec![
         Case::new(
             String::from("lines_with_init"),
@@ -252,7 +262,6 @@ fn open_cases() -> Result<Vec<Case>, TestError> {
             "write",
             "execute"
         ]),
-        None,
         CensusSource::Gateway,
     )?;
     let exit_of = |case: &str| -> Result<ProcessExit, TestError> {
@@ -435,7 +444,8 @@ fn conformance_opencode_facts_shape() -> TestResult {
 /// A working driver with one thing changed.
 struct Patched {
     inner: OpenShapedDriver,
-    capabilities: Option<Capabilities>,
+    session_answer: Option<Answer>,
+    wordless: Option<AgentSetting>,
     stop: Option<StopSpec>,
     extra_arg: Option<String>,
     census_stream_removed: bool,
@@ -445,14 +455,14 @@ struct Patched {
     host_collect: bool,
     state_override: Option<Vec<StatePath>>,
     gateway_override: Option<GatewayEnv>,
-    settings_override: Option<Vec<SettingRow>>,
 }
 
 impl Patched {
     fn new() -> Self {
         Self {
             inner: OpenShapedDriver(DocumentDriver),
-            capabilities: None,
+            session_answer: None,
+            wordless: None,
             stop: None,
             extra_arg: None,
             census_stream_removed: false,
@@ -462,7 +472,6 @@ impl Patched {
             host_collect: false,
             state_override: None,
             gateway_override: None,
-            settings_override: None,
         }
     }
 }
@@ -497,7 +506,7 @@ impl TraceReader for EagerCensus {
     }
     fn observed(&self) -> Observed {
         // A phantom inventory, whatever the record holds.
-        let init = InitReport::new(json!(["shell"]), None, CensusSource::Gateway)
+        let init = InitReport::new(json!(["shell"]), CensusSource::Gateway)
             .unwrap_or_else(|_| unreachable!());
         Observed::new(Vec::new()).with_init(init)
     }
@@ -533,19 +542,25 @@ impl HarnessDriver for Patched {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.inner.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.capabilities
-            .unwrap_or_else(|| self.inner.capabilities())
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        if self.wordless == Some(setting) {
+            return Answer::Mapped { construct: "" };
+        }
+        if let Some(answer) = self.session_answer
+            && setting == AgentSetting::SessionMode
+        {
+            return answer;
+        }
+        self.inner.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.inner.fact(fact)
     }
     fn gateway(&self) -> Option<GatewayEnv> {
         self.gateway_override
             .clone() // BORROW: .clone() copies the override
             .or_else(|| self.inner.gateway())
-    }
-    fn settings_table(&self) -> Vec<SettingRow> {
-        self.settings_override
-            .clone() // BORROW: .clone() copies the override
-            .unwrap_or_else(|| self.inner.settings_table())
     }
     fn state_paths(&self) -> Vec<StatePath> {
         self.state_override
@@ -581,12 +596,16 @@ impl HarnessDriver for Patched {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.inner.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         if self.eager_census && stream.as_str() == "model_requests" {
             return Some(Box::new(EagerCensus)); // TRAIT_OBJECT: the trait returns readers as objects
         }
-        self.inner.offline_reader(stream)
+        self.inner.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.inner.classify_exit(exit, sessions)
@@ -620,10 +639,153 @@ impl HarnessDriver for Patched {
 }
 
 /// The failure the suite gives a broken driver, or an error when it passes.
-fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
+fn refusal(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    cases: &[Case],
+) -> Result<String, TestError> {
     match run_suite(driver, cases) {
         Err(failure) => Ok(failure.to_string()),
         Ok(()) => Err("the suite passed a broken driver".into()),
+    }
+}
+
+/// A self-contained case: a scripted agent writes files into a workspace beside a skill file the
+/// harness left in a private directory.
+fn oracle_case() -> Result<Case, TestError> {
+    Ok(Case::new(
+        String::from("collect_keeps_the_files_the_agent_wrote"),
+        ReaderSource::Live,
+        name("stdout")?,
+        Vec::new(),
+    )
+    .detects(false)
+    .with_workspace(
+        vec![
+            PreparedFile::new("notes.md".parse()?, b"kept".to_vec(), false),
+            PreparedFile::new("outputs/answer.txt".parse()?, b"stamp".to_vec(), false),
+        ],
+        vec![PreparedFile::new(
+            ".claude/skills/s/SKILL.md".parse()?,
+            b"skill".to_vec(),
+            false,
+        )],
+    ))
+}
+
+/// A working driver whose `collect` keeps every file of the workspace, except the private
+/// directory when `leaves_out` is set.
+struct Keeps {
+    leaves_out: bool,
+}
+
+impl HarnessDriver for Keeps {
+    fn skills(&self) -> candler_harness::skills::SkillTree {
+        candler_harness::skills::SkillTree::new(".claude/skills", ".claude/skills")
+    }
+    fn base_image(&self) -> candler_harness::spec::BaseImage {
+        candler_harness::spec::BaseImage::new("base", Vec::new())
+    }
+    fn detect(&self, _sample: &[u8]) -> Option<semver::Version> {
+        None
+    }
+    fn id(&self) -> candler_harness::spec::HarnessId {
+        HarnessId::new("keeps".parse().unwrap_or_else(|_| unreachable!()))
+    }
+    fn supported(&self) -> semver::VersionReq {
+        semver::VersionReq::parse(">=1").unwrap_or_else(|_| unreachable!())
+    }
+    fn version_probe(&self) -> CommandSpec {
+        CommandSpec::builder()
+            .argv(vec![String::from("k"), String::from("--version")])
+            .build()
+            .unwrap_or_else(|_| unreachable!())
+    }
+    fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
+        String::from_utf8_lossy(output)
+            .trim()
+            .parse()
+            .map_err(|_| DriverError::VersionOutput {
+                detail: String::from("no version"),
+            })
+    }
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
+    }
+    fn gateway(&self) -> Option<candler_harness::spec::GatewayEnv> {
+        Some(candler_harness::spec::GatewayEnv::new(
+            String::from("K_BASE"),
+            String::from("K_TOKEN"),
+            vec![String::from("K_BASE"), String::from("K_TOKEN")],
+        ))
+    }
+    fn plan(&self, _cell: &Cell<'_>, _workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
+        Ok(Plan::new(
+            candler_harness::spec::Prepared::default(),
+            CommandSpec::builder()
+                .argv(vec![String::from("k")])
+                .build()?,
+        ))
+    }
+    fn stop(&self) -> candler_harness::spec::StopSpec {
+        candler_harness::spec::StopSpec::new(
+            None,
+            candler_harness::spec::StopSignal::Term,
+            Duration::from_secs(5),
+        )
+    }
+    fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
+        // TRAIT_OBJECT: the trait returns readers as objects
+        Some(Box::new(LinesReader {
+            pending: Vec::new(),
+            init: None,
+        }))
+    }
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        // TRAIT_OBJECT: the trait returns readers as objects
+        Some(Box::new(LinesReader {
+            pending: Vec::new(),
+            init: None,
+        }))
+    }
+    fn classify_exit(&self, _exit: &ProcessExit, _sessions: &[Session]) -> EndedBy {
+        EndedBy::Unknown
+    }
+    fn collect(&self, _workspace: &Workspace<'_>, _observed: &Observed) -> Vec<CollectSpec> {
+        let mut specs = vec![CollectSpec::file(String::from("**/*"))];
+        if self.leaves_out {
+            specs.push(CollectSpec::file(String::from("!.claude/**")));
+        }
+        specs
     }
 }
 
@@ -639,7 +801,8 @@ fn refusal(driver: &Patched, cases: &[Case]) -> Result<String, TestError> {
 /// falling back for an unknown or refused id; an inventory from a source that saw no tool; two state
 /// paths sharing a variable or named like a gateway variable or not a variable at all; gateway names
 /// that are no variable, one variable for two uses, unreserved or listed twice; a settings table
-/// with a row twice, a refusal with no reason or a mapping with no construct.
+/// with a row twice, a refusal with no reason or a mapping with no construct; a `collect` that
+/// does not keep the files the agent wrote (named) or one that does (passes).
 /// Removing any one check from `candler-harness/src/conformance.rs` turns the matching section
 /// below red alone.
 /// Oracle: the capability and census rules of the leaf, the hand-written canary and the driver's
@@ -654,15 +817,9 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     let cases = open_cases()?;
     assert!(run_suite(&Patched::new(), &cases).is_ok());
     let mut broken = Patched::new();
-    broken.capabilities = Some(
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .execution_outside_child(true)
-            .census(true)
-            .session(true)
-            .build(),
-    );
+    broken.session_answer = Some(Answer::Mapped {
+        construct: "test stand-in",
+    });
     let message = refusal(&broken, &cases)?;
     assert!(
         message.contains("session capability is declared and the driver returns no session spec"),
@@ -769,6 +926,29 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     let message = refusal(&broken, &cases)?;
     assert!(message.contains("host command"), "{message}");
 
+    // A driver whose `collect` stores no file of the workspace is refused, and the refusal names the
+    // files the agent wrote that are missing. The OpenCode-shaped fake collects only the export
+    // command (no file glob).
+    let oracle = oracle_case()?;
+    let message = refusal(&Patched::new(), std::slice::from_ref(&oracle))?;
+    assert!(
+        message.contains("missing")
+            && message.contains("notes.md")
+            && message.contains("outputs/answer.txt"),
+        "{message}"
+    );
+
+    // A driver that stores the harness's private file too is refused, and the refusal names it
+    // as extra.
+    let message = refusal(&Keeps { leaves_out: false }, std::slice::from_ref(&oracle))?;
+    assert!(
+        message.contains("extra") && message.contains(".claude/skills/s/SKILL.md"),
+        "{message}"
+    );
+
+    // A driver that stores exactly what the agent wrote passes the same case.
+    assert!(run_suite(&Keeps { leaves_out: true }, std::slice::from_ref(&oracle)).is_ok());
+
     // Two state paths that are one path, or a file that is another path's parent, are refused; a
     // file inside a directory the driver also lists, and sibling paths, pass.
     let path = |env: &str, kind: StateKind, text: &str| -> Result<StatePath, TestError> {
@@ -855,29 +1035,10 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     );
     assert!(refusal(&twice, &cases)?.contains("a reserved name is listed twice"));
 
-    // A settings table that names a setting and value twice, a refused row that gives no reason
-    // and a mapped row that names no construct are refused; a sound table passes.
-    let table = |rows: Vec<SettingRow>| {
-        let mut driver = Patched::new();
-        driver.settings_override = Some(rows);
-        driver
-    };
-    let mapped = SettingRow::mapped("permission_mode", "bypassPermissions", "`--auto`", "all");
-    let refused = SettingRow::refused("permission_mode", "plan", "reads and read-only shell");
-    assert!(run_suite(&table(vec![mapped.clone(), refused.clone()]), &cases).is_ok()); // BORROW: .clone() copies the row
-    let duplicate = table(vec![mapped.clone(), mapped.clone()]); // BORROW: .clone() copies the row
-    assert!(
-        refusal(&duplicate, &cases)?.contains("two rows name permission_mode bypassPermissions")
-    );
-    let no_reason = table(vec![SettingRow::refused("permission_mode", "plan", "")]);
-    assert!(refusal(&no_reason, &cases)?.contains("gives no reason"));
-    let no_construct = table(vec![SettingRow::mapped(
-        "permission_mode",
-        "plan",
-        "",
-        "all",
-    )]);
-    assert!(refusal(&no_construct, &cases)?.contains("names no construct"));
+    // An answer that has no words is refused.
+    let mut wordless = Patched::new();
+    wordless.wordless = Some(AgentSetting::CostBudget);
+    assert!(refusal(&wordless, &cases)?.contains("has no words"));
 
     // An in-container script that finds a process with the full-command-line option of `pgrep`
     // or `pkill` is refused, in any option cluster; exact-name and `/proc` forms pass.
@@ -942,23 +1103,23 @@ fn conformance_refuses_a_broken_driver() -> TestResult {
     // own empty init list is a recorded one, and the three sources never compare equal.
     for source in [CensusSource::Gateway, CensusSource::Collected] {
         assert_eq!(
-            InitReport::new(json!([]), None, source),
+            InitReport::new(json!([]), source),
             Err(InitReportError::NoTools)
         );
     }
-    assert!(InitReport::new(json!([]), Some(json!([])), CensusSource::Harness).is_ok());
+    assert!(InitReport::new(json!([]), CensusSource::Harness).is_ok());
     for source in [
         CensusSource::Harness,
         CensusSource::Gateway,
         CensusSource::Collected,
     ] {
         assert_eq!(
-            InitReport::new(json!(["read", ""]), None, source),
+            InitReport::new(json!(["read", ""]), source),
             Err(InitReportError::EmptyToolName)
         );
     }
     let tools = || json!(["read"]);
-    let by = |source| InitReport::new(tools(), None, source);
+    let by = |source| InitReport::new(tools(), source);
     assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Gateway)?);
     assert_ne!(by(CensusSource::Gateway)?, by(CensusSource::Collected)?);
     assert_ne!(by(CensusSource::Harness)?, by(CensusSource::Collected)?);
@@ -993,8 +1154,12 @@ impl HarnessDriver for Silent {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.0.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.0.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.0.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.0.fact(fact)
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         self.0.plan(cell, workspace)
@@ -1005,8 +1170,12 @@ impl HarnessDriver for Silent {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.0.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.0.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.0.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.0.classify_exit(exit, sessions)
@@ -1086,14 +1255,35 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
             self.0.parse_version(output)
         }
-        fn capabilities(&self) -> Capabilities {
-            Capabilities::builder()
-                .graceful_stop(true)
-                .live_events(true)
-                .execution_outside_child(true)
-                .census(true)
-                .session(true)
-                .build()
+        fn answer(&self, setting: AgentSetting) -> Answer {
+            let refused: &[AgentSetting] = &[AgentSetting::TurnBudget, AgentSetting::CostBudget];
+            if refused.contains(&setting) {
+                Answer::Refused {
+                    reason: "test stand-in",
+                }
+            } else {
+                Answer::Mapped {
+                    construct: "test stand-in",
+                }
+            }
+        }
+
+        fn fact(&self, fact: DriverFact) -> Answer {
+            let held: &[DriverFact] = &[
+                DriverFact::GracefulStop,
+                DriverFact::LiveEvents,
+                DriverFact::Census,
+                DriverFact::ExecutionOutsideChild,
+            ];
+            if held.contains(&fact) {
+                Answer::Mapped {
+                    construct: "test stand-in",
+                }
+            } else {
+                Answer::Refused {
+                    reason: "test stand-in",
+                }
+            }
         }
         fn gateway(&self) -> Option<GatewayEnv> {
             self.0.gateway()
@@ -1134,8 +1324,12 @@ fn conformance_session_surface_on_a_fake() -> TestResult {
         fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
             self.0.live_reader()
         }
-        fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-            self.0.offline_reader(stream)
+        fn offline_reader(
+            &self,
+            stream: &StreamName,
+            servers: &[String],
+        ) -> Option<Box<dyn TraceReader>> {
+            self.0.offline_reader(stream, servers)
         }
         fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
             self.0.classify_exit(exit, sessions)

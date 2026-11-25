@@ -443,19 +443,19 @@ fn cells_by_tag(
 /// Guards: T3 wiring (C3) -- each cell of a two-level job carries its own level's treatment
 /// checkout and harness, never the first level's.
 /// Oracle: the checkouts `/src/a` and `/src/b`, the harness versions `2.1.0` and `2.2.0` and the
-/// source paths `snapshots` and `environments` written below, one set for each level's tag.
+/// source paths `inputs` and `environments` written below, one set for each level's tag.
 /// Bite: build every cell from the job's primary level.
 #[test]
 fn t3_each_cell_runs_its_own_treatment() {
     let levels = [
-        level_of("v1", "/src/a", "2.1.0", "snapshots"),
+        level_of("v1", "/src/a", "2.1.0", "inputs"),
         level_of("v2", "/src/b", "2.2.0", "environments"),
     ];
     let cells = cells_by_tag(&two_level_file(&["htn", "other"]), &levels);
     assert_eq!(cells.len(), 2, "one cell per level");
     for (tag, source, version, root, other) in [
-        ("v1", "/src/a", "2.1.0", "snapshots", "environments"),
-        ("v2", "/src/b", "2.2.0", "environments", "snapshots"),
+        ("v1", "/src/a", "2.1.0", "inputs", "environments"),
+        ("v2", "/src/b", "2.2.0", "environments", "inputs"),
     ] {
         let cell = cells.get(tag).expect("the level's cell");
         let held: Vec<&str> = cell
@@ -487,7 +487,7 @@ fn t3_each_cell_runs_its_own_treatment() {
 /// Bite: look the cell's level up among the job's levels and refuse a job that holds none.
 #[test]
 fn t3_one_level_job_unchanged() {
-    let levels = [level_of("v1", "/src/a", "2.1.0", "snapshots")];
+    let levels = [level_of("v1", "/src/a", "2.1.0", "inputs")];
     let cells = cells_by_tag(&two_level_file(&["htn"]), &levels);
     assert_eq!(cells.len(), 1, "one level, one cell");
     let cell = cells.get("v1").expect("the cell");

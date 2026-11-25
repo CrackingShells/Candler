@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use candler_harness::driver::{DriverError, HarnessDriver};
-use candler_harness::spec::Cell;
+use candler_harness::spec::{AgentSetting, Cell};
 
 use candler_schemas::distinct::first_clash;
 use candler_schemas::execution::check_replicates;
@@ -19,6 +19,7 @@ use candler_schemas::execution::{
     Comparable, Deviation, ExecutionError, ExperimentFile, Factor, Integrity, Level, RunManifest,
     SecretPresence, TreatmentRef, experiment_digest,
 };
+use candler_schemas::field_path;
 use candler_schemas::primitives::{Digest, FieldPath, JobId, RunKey, SecretName};
 use candler_schemas::values::{JsonValue, ResolvedValue, SourceEntry, ValueSource};
 use rustix::fs::{FlockOperation, flock};
@@ -28,6 +29,7 @@ use serde_json::Value;
 use crate::jobs::dir::JobDir;
 use crate::jobs::lock::{JobLock, LockState};
 use crate::resolve::layers::{Resolution, is_setting};
+use crate::resolve::paths::refuse_unanswered;
 use crate::resolve::steps::egress::{self, EgressRefusal};
 use crate::resolve::steps::plugin_environment::{plugin_egress, unite_egress};
 use crate::resolve::steps::session::{self, SessionRefusal};
@@ -153,6 +155,22 @@ pub fn experiment_of<'a>(
     Ok(experiment_digest(digests.as_slice()))
 }
 
+/// Builds every cell of `file` under `levels` and has `driver` check each one, so a value a cell
+/// cannot hold (an absolute path, a malformed MCP server, a setting the harness cannot honour) is
+/// refused before any run.
+///
+/// # Errors
+/// The [`PlanError`] of the first cell that cannot be built or that the driver refuses.
+pub fn check_cells<'a>(
+    file: &ExperimentFile,
+    levels: impl Into<Levels<'a>>,
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the registry's driver, selected at run time
+) -> Result<(), PlanError> {
+    let levels = levels.into();
+    levels.replicates(file)?;
+    fresh_cells(file, &levels, Some(driver)).map(drop)
+}
+
 /// A deviation as `path {stored: <value>, observed: <value>}`, for a message; a value that was
 /// not recorded reads `absent`. A deviation holds names and digests, never a secret.
 fn describe(deviation: &Deviation) -> String {
@@ -241,6 +259,22 @@ pub enum PlanError {
     SettingAsFactor {
         /// The path of the setting the factor varies.
         path: String,
+    },
+    /// The count of replicates is not a count the runner can run.
+    #[error("{source}")]
+    Replicates {
+        /// Why the count is refused.
+        #[source]
+        source: ExecutionError,
+    },
+    /// The setting `replicates` that the experiment file's `[fixed]` gives differs from the file's
+    /// own `replicates`.
+    #[error("replicates is {fixed} in [fixed] and {file} in the experiment file; write it once")]
+    ReplicatesConflict {
+        /// The count `[fixed]` gives.
+        fixed: u32,
+        /// The count the file's own `replicates` gives.
+        file: u32,
     },
     /// A cell of the experiment cannot be built from the resolution.
     #[error("a cell cannot be built: {source}")]
@@ -353,19 +387,41 @@ impl<'a> Levels<'a> {
 
     /// The replicates of each cell: the setting `replicates` of the first level when the
     /// resolution holds one, else `file`'s own count. A setting is no part of a cell, so the
-    /// levels agree on it.
-    fn replicates(&self, file: &ExperimentFile) -> u32 {
-        self.get(0)
-            .and_then(|resolution| {
-                resolution
-                    .settings
-                    .iter()
-                    .find(|setting| setting.path().as_str() == "replicates") // BORROW: explicit .as_str()
-            })
-            .and_then(|setting| setting.value())
+    /// levels agree on it. A setting that is no count, or that the file's `[fixed]` gives and
+    /// differs from the file's own count, is refused.
+    ///
+    /// # Errors
+    /// [`PlanError::Replicates`] when the setting is not a whole count from 1 to 4294967295, and
+    /// [`PlanError::ReplicatesConflict`] when `[fixed]` and the file's own count differ.
+    fn replicates(&self, file: &ExperimentFile) -> Result<u32, PlanError> {
+        let Some(resolution) = self.get(0) else {
+            return Ok(file.replicates());
+        };
+        let Some(setting) = resolution
+            .settings
+            .iter()
+            .find(|setting| setting.path().as_str() == "replicates")
+        // BORROW: explicit .as_str()
+        else {
+            return Ok(file.replicates());
+        };
+        let count = setting
+            .value()
             .and_then(|value| value.as_value().as_u64())
-            .and_then(|count| check_replicates(count).ok())
-            .unwrap_or_else(|| file.replicates())
+            .ok_or(PlanError::Replicates {
+                source: ExecutionError::ReplicatesNotCount,
+            })?;
+        let count = check_replicates(count).map_err(|source| PlanError::Replicates { source })?;
+        let from_file = resolution.sources.iter().any(|entry| {
+            entry.path() == setting.path() && matches!(entry.source(), ValueSource::ExperimentFile)
+        });
+        if from_file && count != file.replicates() {
+            return Err(PlanError::ReplicatesConflict {
+                fixed: count,
+                file: file.replicates(),
+            });
+        }
+        Ok(count)
     }
 }
 
@@ -523,6 +579,37 @@ fn setting_in(prefix: &str, table: &serde_json::Map<String, Value>) -> Option<St
     })
 }
 
+/// The values of `values` with `codemode` written for each server of `mcp.servers` that does not
+/// set it, as the value [`McpServer`](candler_schemas::servers::McpServer) reads: the cell records
+/// what Candler installs, so a server that leaves `codemode` out and one that sets it to `false`
+/// are one cell.
+///
+/// # Errors
+/// [`PlanError::Driver`] when the reader of `mcp.servers` refuses an entry, or a server key is no
+/// field-path segment and so cannot hold a value.
+fn fill_codemode(values: &mut Vec<ResolvedValue>) -> Result<(), PlanError> {
+    let Some(servers) = candler_harness::mcp::by_key(&Cell::new(values.as_slice()))? else {
+        return Ok(());
+    };
+    for (key, server) in servers {
+        let path = format!("{}.{key}.codemode", candler_harness::mcp::SERVERS)
+            .parse::<FieldPath>()
+            .map_err(|error| DriverError::InvalidValue {
+                path: field_path!("mcp.servers"),
+                detail: format!("the key `{key}` {error}"),
+            })?;
+        if values.iter().any(|held| *held.path() == path) {
+            continue;
+        }
+        let held =
+            JsonValue::new(Value::Bool(server.codemode)).map_err(|error| PlanError::Cell {
+                source: error.into(),
+            })?;
+        values.push(ResolvedValue::recorded(path, held));
+    }
+    Ok(())
+}
+
 /// Builds every cell of `file`, each under the resolution of its treatment level. A path the file
 /// writes that [`is_setting`] names is a setting of the run, which the resolution holds, and no
 /// value of a cell; the treatment level reaches the cell through its resolution.
@@ -537,7 +624,8 @@ fn fresh_cells<'r>(
     levels: &Levels<'r>,
     driver: Option<&dyn HarnessDriver>,
 ) -> Result<Vec<FreshCell<'r>>, PlanError> {
-    let session_capable = driver.map(|driver| driver.capabilities().session);
+    let session_capable =
+        driver.map(|driver| !driver.answer(AgentSetting::SessionMode).is_refused());
     if let Some(path) = file.factors().iter().find_map(setting_of_factor) {
         return Err(PlanError::SettingAsFactor { path });
     }
@@ -627,6 +715,7 @@ fn fresh_cells<'r>(
             })?;
             values.push(ResolvedValue::recorded(path, value));
         }
+        fill_codemode(&mut values)?;
         let canonical = {
             let at = |path: &str| {
                 values
@@ -672,7 +761,9 @@ fn fresh_cells<'r>(
     }
     if let Some(driver) = driver {
         for cell in &cells {
-            driver.check_settings(&Cell::new(cell.comparable.values()))?;
+            let view = Cell::new(cell.comparable.values());
+            refuse_unanswered(driver, &view)?;
+            driver.check_settings(&view)?;
         }
     }
     Ok(cells)
@@ -1185,7 +1276,7 @@ pub fn plan_runs<'a>(
     let mut sealed = Vec::new();
     for (cell, replicate) in run_order(
         per_cell.len(),
-        levels.replicates(file),
+        levels.replicates(file)?,
         seed_of(&experiment),
     ) {
         let Some((digest, pinned, deviations)) = per_cell.get(cell) else {

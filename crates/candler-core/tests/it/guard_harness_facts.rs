@@ -21,9 +21,9 @@ use candler_core::supervise::spawn::FrameObserver as _;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, EnvEntry, GatewayEnv,
-    HarnessId, InitReport, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvEntry,
+    GatewayEnv, HarnessId, InitReport, Observed, Prepared, ProcessExit, StateKind, StatePath,
+    StopSignal, StopSpec, Workspace,
 };
 use candler_harness_claude_code::ClaudeCodeReader;
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
@@ -141,11 +141,34 @@ impl HarnessDriver for FakeHarness {
         })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .budgets(BudgetCaps::new(false, false))
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[DriverFact::GracefulStop];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -197,7 +220,11 @@ impl HarnessDriver for FakeHarness {
     }
 
     // TRAIT_OBJECT: the core selects readers at runtime
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         None
     }
 
@@ -676,7 +703,7 @@ fn harness_env_state_paths_are_in_writable_mounts() {
 // H3: the census.
 // ---------------------------------------------------------------------------------------------
 
-/// Guards: R01 §Run manifest (`census.*`, `run.usage`, `run.cost_usd`, `run.num_turns`) — the three
+/// Guards: R01 §Run manifest (`census.*`, `run.usage`, `run.cost_usd`, `run.num_turns`) — the two
 /// census values and the three run totals of every recorded Claude Code stream are the ones
 /// cf3de30 recorded, byte for byte.
 /// Oracle: `census.json` and `run_totals.json`, recorded at cf3de30 from the same streams.
@@ -721,8 +748,8 @@ fn harness_census_equals_cf3de30_on_every_fixture() {
 }
 
 /// The inventory a source reported, as the driver's reader builds it.
-fn inventory(tools: Value, servers: Option<Value>, source: CensusSource) -> InitReport {
-    InitReport::new(tools, servers, source).expect("an inventory")
+fn inventory(tools: Value, source: CensusSource) -> InitReport {
+    InitReport::new(tools, source).expect("an inventory")
 }
 
 /// The paths and values of `census` over `init`.
@@ -742,26 +769,19 @@ type CensusRow = (
 );
 
 /// Guards: R01 §Run manifest (`census.*`) — an inventory records what its source saw: from a
-/// source that sees no servers, `census.tools` and `census.init_tools` only, never an empty server
-/// list, and the source that saw them; from the harness's own init, the three values in the order
-/// of the baseline with the server list out of `census.init_tools` and no source; from no
+/// gateway, `census.tools` and `census.init_tools` and the source that saw them; from the
+/// harness's own init, the two values in the order of the baseline and no source; from no
 /// inventory, nothing, and no empty list.
 /// Oracle: the sorted, deduplicated tool names and the order and shape of `census.json`
 /// (recorded at cf3de30), with the lists written here by hand.
-/// Bite: `census.mcp_servers` recorded as an empty list, `census.init_tools` left unsorted,
-/// servers merged into `census.init_tools`, the three values reordered, or an absent inventory
-/// recorded as an empty tool list.
+/// Bite: a server list recorded, `census.init_tools` left unsorted, the two values reordered, or an
+/// absent inventory recorded as an empty tool list.
 #[test]
 fn harness_census_records_what_the_source_saw() {
-    let servers = json!([{"name": "s", "status": "connected"}]);
     let rows: Vec<CensusRow> = vec![
         (
-            "a source that sees no servers",
-            Some(inventory(
-                json!(["b", "a", "b"]),
-                None,
-                CensusSource::Gateway,
-            )),
+            "the gateway",
+            Some(inventory(json!(["b", "a", "b"]), CensusSource::Gateway)),
             Some(vec![
                 (String::from("census.tools"), json!(["b", "a", "b"])),
                 (String::from("census.init_tools"), json!(["a", "b"])),
@@ -770,14 +790,9 @@ fn harness_census_records_what_the_source_saw() {
         ),
         (
             "the harness's own init",
-            Some(inventory(
-                json!(["Bash", "Agent"]),
-                Some(servers.clone()), // BORROW: the row owns its list
-                CensusSource::Harness,
-            )),
+            Some(inventory(json!(["Bash", "Agent"]), CensusSource::Harness)),
             Some(vec![
                 (String::from("census.tools"), json!(["Bash", "Agent"])),
-                (String::from("census.mcp_servers"), servers),
                 (String::from("census.init_tools"), json!(["Agent", "Bash"])),
             ]),
         ),

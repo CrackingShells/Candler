@@ -61,7 +61,8 @@ impl Registry {
     }
 
     /// The streams the harness `name` collects after a run, each with the offline reader its
-    /// driver gives it. A harness that is not registered, or that collects none, gives none.
+    /// driver gives it, for a run whose cell is not known: no MCP server is declared to it. A
+    /// harness that is not registered, or that collects none, gives none.
     // TRAIT_OBJECT: the readers are the drivers', chosen by the harness's name at runtime
     #[must_use]
     pub fn offline(&self, name: &str) -> Vec<(StreamName, Box<dyn TraceReader>)> {
@@ -72,7 +73,7 @@ impl Registry {
             .offline_streams()
             .into_iter()
             .filter_map(|stream| {
-                let reader = driver.offline_reader(&stream)?;
+                let reader = driver.offline_reader(&stream, &[])?;
                 Some((stream, reader))
             })
             .collect()

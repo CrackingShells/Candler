@@ -71,6 +71,7 @@ jobs:
             i8_canary_never_reaches_the_agent \
             egress_proxy_never_resolves_a_listed_host_to_itself \
             controls_e2e_pinned_harness_passes \
+            parity_one_installed_server_one_traced_call \
             control_each_kind_runs_on_the_real_base \
             opencode_probe_reads_each_real_base_image_version \
             plugin_environment_serves_live_mcp_tools \

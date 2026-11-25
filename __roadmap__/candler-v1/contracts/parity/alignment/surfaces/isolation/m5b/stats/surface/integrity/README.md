@@ -4,7 +4,7 @@
 Depth 9. M6c Integrity, one level below M6b and above M7, added by amendment A12 as the architecture diet and renamed by amendment A13. The diet's first half (`__roadmap__/diet/`) fixed S1, B1 and three silent acceptances and culled the suite; it landed as PR #57. Those were instances. The rest of M6c removes their causes, as planned in `__reports__/diet/04-architecture_cycle_plan_v2.md`: Candler state with a second producer in tests and fakes (D1), milestones cut by file and gated by counts (D3), an `AGENTS.md` read as a checklist (D4), and inputs with several readers (D5). Its build is the campaign `__roadmap__/integrity/`, on `feat/integrity`.
 
 ## Goal
-The README's promises of provenance, per-run tool-catalog snapshots, grading "already on disk" and thin surfaces over one API hold by construction: each kind of stored state has one producer, each consumer input has one reader, and an outside consumer's pass on the after tip finds no friction whose cause is D1 to D5.
+The README's promises of provenance, per-run tool census, grading "already on disk" and thin surfaces over one API hold by construction: each kind of stored state has one producer, each consumer input has one reader, and an outside consumer's pass on the after tip finds no friction whose cause is D1 to D5.
 
 ## Pre-conditions
 - [x] `../m6b_surface_consolidation.md` is `done` (PR #56)

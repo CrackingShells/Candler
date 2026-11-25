@@ -7,12 +7,13 @@
 use std::str::FromStr as _;
 use std::time::Duration;
 
-use candler_harness::driver::{DriverError, HarnessDriver, Plan, SettingRow};
+use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
-    Action, BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId,
-    Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal, StopSpec, Workspace,
+    Action, AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, DriverFact,
+    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace,
 };
 use candler_schemas::name;
 use candler_schemas::primitives::{RelPath, plain_arg};
@@ -154,15 +155,31 @@ impl HarnessDriver for OpenCodeDriver {
         Ok(version)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        // Tools run in the `serve` child, so a signal to the client alone does not stop them. There
-        // is no turn or cost cap and no session mode, and the live reader emits no event: the trace
-        // comes from the export. The tool inventory is what the gateway saw in the model requests.
-        Capabilities::builder()
-            .graceful_stop(true)
-            .census(true)
-            .execution_outside_child(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        prepare::answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        match fact {
+            DriverFact::GracefulStop => Answer::Mapped {
+                construct: "an interrupt request to the `serve` child, then SIGTERM to the client",
+            },
+            DriverFact::LiveEvents => Answer::Refused {
+                reason: "the live reader emits no event: the trace comes from the export",
+            },
+            DriverFact::InHarnessGuard => Answer::Refused {
+                reason: "the driver configures no OpenCode guard",
+            },
+            DriverFact::ExecutionOutsideChild => Answer::Mapped {
+                construct: "tools run in the `serve` child, which the stop interrupts first",
+            },
+            DriverFact::Census => Answer::Candler {
+                how: "the tools the gateway offered the model in its first request",
+            },
+            DriverFact::UnsetPermissionMode => Answer::Candler {
+                how: "the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode",
+            },
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -186,18 +203,17 @@ impl HarnessDriver for OpenCodeDriver {
             .collect()
     }
 
-    fn settings_table(&self) -> Vec<SettingRow> {
-        prepare::table()
-    }
-
     fn check_settings(&self, cell: &Cell<'_>) -> Result<(), DriverError> {
-        prepare::settings(cell, &VALIDATED)?;
-        prepare::mcp_servers(cell).map(|_| ())
+        prepare::settings(cell)?;
+        let names: Vec<String> = candler_harness::mcp::servers(cell)?
+            .map(|servers| servers.into_keys().collect())
+            .unwrap_or_default();
+        ambiguous_prefixes(&names)
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let _ = workspace;
-        let settings = prepare::settings(cell, &VALIDATED)?;
+        let settings = prepare::settings(cell)?;
         let model = model_id(cell)?;
         let model_arg = match &settings.variant {
             Some((id, _)) => format!("{}/{model}#{id}", prepare::PROVIDER),
@@ -241,9 +257,13 @@ impl HarnessDriver for OpenCodeDriver {
         census_stream()
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         if export_stream().as_ref() == Some(stream) {
-            return Some(Box::new(OpenCodeExportReader::new())); // TRAIT_OBJECT: the core selects readers at runtime
+            return Some(Box::new(OpenCodeExportReader::new(servers))); // TRAIT_OBJECT: the core selects readers at runtime
         }
         None
     }
@@ -300,6 +320,21 @@ impl HarnessDriver for OpenCodeDriver {
         }
         specs
     }
+}
+
+/// Refuses two server names where one, then `_`, begins the other: `OpenCode` names a tool
+/// `<server>_<tool>`, so `a_b_c` would be the tool `b_c` of `a` or the tool `c` of `a_b`.
+fn ambiguous_prefixes(names: &[String]) -> Result<(), DriverError> {
+    for first in names {
+        let prefix = format!("{first}_");
+        if let Some(second) = names.iter().find(|name| name.starts_with(prefix.as_str())) {
+            return Err(DriverError::AmbiguousServers {
+                first: first.clone(),   // BORROW: .clone() makes the owned name the error keeps
+                second: second.clone(), // BORROW: .clone() makes the owned name the error keeps
+            });
+        }
+    }
+    Ok(())
 }
 
 /// The stream the gateway's census is stored as.

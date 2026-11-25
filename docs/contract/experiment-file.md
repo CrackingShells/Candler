@@ -64,7 +64,7 @@ Wire line: `schemas@0.12.0`.
 | `canonical.number_not_finite` | A number is not finite. | - | experiment |
 | `canonical.syntax_invalid` | A text is not valid JSON. | - | experiment |
 | `experiment.absolute_path` | A value holds an absolute path as a string, and a file enters a cell as an input digest. | - | experiment |
-| `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | - | experiment |
+| `experiment.cell_value_invalid` | A cell value cannot be used by the harness driver. | The field of the value, such as `/mcp/servers/fs/command`. | experiment |
 | `experiment.cell_value_missing` | A cell lacks a value that the harness driver needs. | - | experiment |
 | `experiment.cost_not_positive` | A cost cap is not a finite number above 0. | - | experiment |
 | `experiment.count_zero` | A count, duration or process id that must be at least 1 is 0. | The field when it is `replicates` or one under `budget`; none otherwise. | experiment |
@@ -79,9 +79,11 @@ Wire line: `schemas@0.12.0`.
 | `experiment.input_invalid` | An input declaration uses the kind the wire reserves, or mounts under an empty, absolute or escaping directory. | `/inputs`, the list that holds the declaration. | experiment |
 | `experiment.input_not_stored` | A declared input file or list could not be copied into the store. | The `inputs` array of the experiment file. | experiment |
 | `experiment.input_unusable` | A declared input cannot be used as written, for example a missing file or a directory where a file is needed. | The `inputs` array of the experiment file. | experiment |
+| `experiment.mcp_server_prefix_ambiguous` | Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one. | The table of servers, `/mcp/servers`. | experiment |
 | `experiment.name_collision` | Two names under one root map to the same deviation path, so a deviation there would be ambiguous. | - | experiment |
 | `experiment.path_overlap` | Two paths set by the fixed values and the factors are the same, or one lies below the other. | - | experiment |
-| `experiment.replicates_not_integer` | `replicates` in `[fixed]` or in a `--set` is not a whole number, such as a string or a fraction. | The `replicates` key. | experiment |
+| `experiment.replicates_conflict` | `replicates` in `[fixed]` differs from the experiment file's own `replicates`; write the count once. | The `replicates` key. | experiment |
+| `experiment.replicates_not_count` | `replicates` is not a whole number from 1 to 4294967295, such as a negative number, a fraction, a count beyond 32 bits or a string. | The `replicates` key. | experiment |
 | `experiment.replicates_path` | A `[fixed]` key or a `--set` names a path below `replicates`; `replicates` is one count and has no fields. | The path that was written. | experiment |
 | `experiment.reserved_root_misused` | A value at a reserved root is not the root alone, or has no value. | - | experiment |
 | `experiment.reserved_value_malformed` | The value of a reserved root is not the shape the root takes. | - | experiment |
@@ -112,7 +114,8 @@ Wire line: `schemas@0.12.0`.
 ## Notes
 
 - The document has no `free` fields. An unknown key outside `[fixed]` and the `levels` of a factor is `experiment.unknown_field`; a key under `[fixed]` or in a level table that is no setting path is `experiment.unknown_path`. [checked: v@0.7.0]
-- A TOML date or time among the values is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
-- A name, secret name or `schema` marker of the wrong form, an integer out of range and a value that breaks its field's format print `experiment.document_invalid`, never `format.*`. Any other value-invalid file prints its own code, such as `experiment.factor_without_levels` or `experiment.path_overlap`. [checked: v@0.13.0]
-- `canonical.integer_out_of_range` and `values.null` print only for a value given with `--set`. [checked: v@0.7.0]
+- A TOML date or time is refused with `experiment.value_unrepresentable`. [checked: v@0.7.0]
+- A name, secret name or `schema` marker of the wrong form, an integer out of range and a value that breaks its field's format print `experiment.document_invalid`, never `format.*`. Any other value-invalid file prints its own code. [checked: v@0.13.0]
+- `canonical.integer_out_of_range` and `values.null` print only with `--set`. [checked: v@0.7.0]
 - `mcp.servers.<key>.name` names a server (default the key); a driver refuses a name with `__` or one two servers share. [checked: v@0.7.0]
+- `experiment.schema.json` does not check the entries of `mcp.servers`; `mcp-server.schema.json` checks one entry. [checked: schemas@0.12.0]

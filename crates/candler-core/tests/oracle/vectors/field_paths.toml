@@ -180,11 +180,6 @@ class = "typed_root"
 source = "derived digests: server sources and the Dockerfile"
 
 [[path]]
-path = "snapshots"
-class = "typed_root"
-source = "derived: the catalog digest from the CatalogProvider"
-
-[[path]]
 path = "environments"
 class = "typed_root"
 source = "reserved for M5; M2a never writes an environment to the run manifest"

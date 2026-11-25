@@ -483,6 +483,121 @@ async fn session_plan_refuses_a_setting_the_driver_cannot_honour() {
     }
 }
 
+/// Guards: an effort or a permission mode that names nothing is refused once, when the cells are
+/// planned, as `experiment.cell_value_invalid` at the field, whichever driver the cell meets, and
+/// the same cell with a level and a mode that exist plans.
+/// Oracle: the field pointers written by hand; the values go through the real resolve step and
+/// `plan_runs`.
+/// Bite: let the plan pass an unnamed text on to a driver (Claude Code would write it to its
+/// command line; `OpenCode` would answer `setting_unsupported`).
+#[tokio::test]
+async fn an_unnamed_effort_or_mode_is_refused_at_its_field_for_each_driver() {
+    let file = experiment_with("");
+    let mode = ("permission_mode", json!("bypassPermissions"));
+    for capable in [true, false] {
+        for (path, pointer) in [
+            ("model.effort", "/model/effort"),
+            ("permission_mode", "/permission_mode"),
+        ] {
+            let fixed: Vec<(&str, Value)> = if path == "permission_mode" {
+                vec![(path, json!("turbo"))]
+            } else {
+                vec![mode.clone(), (path, json!("turbo"))]
+            };
+            match planned(&file, &fixed, capable).await {
+                Err(error) => {
+                    assert_eq!(
+                        Refusal::code(&error).as_str(),
+                        "experiment.cell_value_invalid",
+                        "{path}, capable {capable}"
+                    );
+                    assert_eq!(
+                        Refusal::path(&error).as_deref(),
+                        Some(pointer),
+                        "{path}, capable {capable}"
+                    );
+                }
+                Ok(_) => panic!("{path}, capable {capable}: an unnamed text planned"),
+            }
+        }
+    }
+}
+
+/// Guards: every permission-mode spelling Claude Code reads plans on Claude Code and reaches
+/// `--permission-mode` as Claude Code's own word, `manual` as `default`; `OpenCode` refuses `auto`
+/// and `dontAsk` as `experiment.setting_unsupported`, and so does an explicit `default`, with
+/// `OpenCode`'s reason; a cell without a mode asks the driver nothing, so both drivers plan it.
+/// Oracle: the modes of the Claude Code CLI reference (`--permission-mode`), written by hand.
+/// Bite: drop `Auto` or `DontAsk` from `PermissionMode`, or the `manual` alias, or ask the driver
+/// about `default` for an absent mode.
+#[tokio::test]
+async fn every_claude_code_permission_mode_plans_and_opencode_refuses_what_it_cannot_carry() {
+    let file = experiment_with("");
+    let driver = ClaudeCodeDriver::new();
+    let workspace = Workspace::new(Path::new("/work/run"));
+    for (text, word) in [
+        ("default", "default"),
+        ("manual", "default"),
+        ("acceptEdits", "acceptEdits"),
+        ("plan", "plan"),
+        ("bypassPermissions", "bypassPermissions"),
+        ("auto", "auto"),
+        ("dontAsk", "dontAsk"),
+    ] {
+        assert!(
+            planned(&file, &[("permission_mode", json!(text))], true)
+                .await
+                .is_ok(),
+            "{text} on Claude Code"
+        );
+        let toml = format!(
+            "schema = \"experiment/1\"\nreplicates = 1\n\n[fixed]\npermission_mode = \"{text}\"\n\
+             \"prompt.template\" = \"go\"\n\"model.id\" = \"m\"\n\n[budget.per_run]\nwall_s = 60\n\n\
+             [harness]\nname = \"claude-code\"\n\n[treatment]\nname = \"t\"\n"
+        );
+        let experiment = ExperimentFile::from_toml_str(&toml).expect("an experiment");
+        let cells = experiment.cells();
+        let values = cells.first().expect("one cell");
+        let plan = driver.plan(&Cell::new(values), &workspace).expect("a plan");
+        assert_eq!(
+            after(plan.command.argv(), "--permission-mode"),
+            Some(word),
+            "{text}"
+        );
+    }
+    for text in ["auto", "dontAsk"] {
+        match planned(&file, &[("permission_mode", json!(text))], false).await {
+            Err(error) => assert_eq!(
+                Refusal::code(&error).as_str(),
+                "experiment.setting_unsupported",
+                "{text}"
+            ),
+            Ok(_) => panic!("an OpenCode cell in {text} mode planned"),
+        }
+    }
+    assert!(
+        planned(&file, &[], true).await.is_ok(),
+        "a Claude Code cell without a mode"
+    );
+    assert!(
+        planned(&file, &[], false).await.is_ok(),
+        "an OpenCode cell without a mode"
+    );
+    match planned(&file, &[("permission_mode", json!("default"))], false).await {
+        Err(error) => {
+            assert_eq!(
+                Refusal::code(&error).as_str(),
+                "experiment.setting_unsupported"
+            );
+            assert!(
+                error.to_string().contains("Claude Code's default mode"),
+                "OpenCode's reason for `default`: {error}"
+            );
+        }
+        Ok(_) => panic!("an OpenCode cell in default mode planned"),
+    }
+}
+
 // ---------------------------------------------------------------------------------------------
 // P1: a model factor of tables.
 // ---------------------------------------------------------------------------------------------

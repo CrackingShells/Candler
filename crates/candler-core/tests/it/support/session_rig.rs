@@ -28,8 +28,8 @@ use candler_core::supervise::stop::Exit;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
-    Capabilities, Cell, CollectSpec, CommandSpec, GatewayEnv, HarnessId, Observed, ProcessExit,
-    SessionTracker, StatePath, StopSpec, Workspace,
+    AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, GatewayEnv, HarnessId,
+    Observed, ProcessExit, SessionTracker, StatePath, StopSpec, Workspace,
 };
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::Comparable;
@@ -183,7 +183,6 @@ fn comparable_of(values: &[(String, Value)]) -> Comparable {
         "values": entries,
         "harness": {"name": "claude-code", "version": "2.1.311"},
         "treatment": {"name": "htn"},
-        "snapshots": [],
         "inputs": [],
         "environments": [],
     }))
@@ -233,8 +232,12 @@ impl HarnessDriver for Driver {
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError> {
         self.inner.parse_version(output)
     }
-    fn capabilities(&self) -> Capabilities {
-        self.inner.capabilities()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        self.inner.answer(setting)
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        self.inner.fact(fact)
     }
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
         let mut plan = self.inner.plan(cell, workspace)?;
@@ -261,8 +264,12 @@ impl HarnessDriver for Driver {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>> {
         self.inner.live_reader()
     }
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
-        self.inner.offline_reader(stream)
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
+        self.inner.offline_reader(stream, servers)
     }
     fn classify_exit(&self, exit: &ProcessExit, sessions: &[Session]) -> EndedBy {
         self.inner.classify_exit(exit, sessions)

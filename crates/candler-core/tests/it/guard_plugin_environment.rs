@@ -893,7 +893,7 @@ fn layer_inputs_mount() {
 /// under `mcp` or one level deeper (the file's key is off).
 #[tokio::test]
 async fn a_plugins_mcp_servers_reach_claude_code() {
-    const DECLARED: &str = "{\n  \"mcpServers\": {\n    \"tools\": {\n      \"args\": [\n        \"env/server.py\"\n      ],\n      \"command\": \"python\"\n    }\n  }\n}\n";
+    const DECLARED: &str = "{\n  \"mcpServers\": {\n    \"tools\": {\n      \"args\": [\n        \"env/server.py\"\n      ],\n      \"command\": \"python\",\n      \"type\": \"stdio\"\n    }\n  }\n}\n";
     let scratch = tempfile::tempdir().expect("a scratch directory");
     let project = scratch
         .path()
@@ -954,7 +954,7 @@ async fn a_plugins_mcp_servers_reach_claude_code() {
 /// command list the plug-in declares.
 /// Oracle: hand-derived from the `agent-env` fixture's `plugin.toml` (server `tools`, command
 /// `python`, arguments `["env/server.py"]`) and the V2 shape `opencode debug config` printed
-/// (`local`, `command` a list, `codemode` on by default).
+/// (`local`, `command` a list, `codemode` off by default).
 /// Bite: read `mcp` by exact path again (no server reaches the file).
 #[tokio::test]
 async fn a_plugins_mcp_servers_reach_opencode() {
@@ -981,7 +981,7 @@ async fn a_plugins_mcp_servers_reach_opencode() {
     assert_eq!(
         parsed["mcp"],
         serde_json::json!({"servers": {"tools": {
-            "type": "local", "command": ["python", "env/server.py"], "codemode": true
+            "type": "local", "command": ["python", "env/server.py"], "codemode": false
         }}})
     );
 }

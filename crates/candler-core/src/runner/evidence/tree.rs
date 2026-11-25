@@ -76,7 +76,11 @@ pub fn tree_json(evidence: &Evidence, inputs: &Inputs) -> Result<RunTree, Eviden
                 path: output.path.clone(), // BORROW: .clone() gives the error its own text
                 detail: error.to_string(), // BORROW: .to_string() gives owned text
             })?;
-        builder = builder.entry(TreeEntry::file(path, output.digest.clone(), false)); // BORROW: .clone() copies the digest
+        builder = builder.entry(TreeEntry::file(
+            path,
+            output.digest.clone(), // BORROW: .clone() copies the digest
+            output.executable,
+        ));
     }
     builder
         .build()

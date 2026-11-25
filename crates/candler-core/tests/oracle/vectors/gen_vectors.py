@@ -1,10 +1,10 @@
 """Generate the digest and identity vectors, with a second engine, from R01's text.
 
-    uv run --with rfc8785 python gen_vectors.py          # write the six TOML files here
+    uv run --with rfc8785 python gen_vectors.py          # write the five TOML files here
     uv run --with rfc8785 python gen_vectors.py --check  # regenerate in memory and compare
 
 Every digest is `sha256` of the RFC 8785 form (python `rfc8785`) of a JSON value built here from
-R01 (§Run manifest, §Digests of a request, §Wire schema: tool-catalog snapshot, §Golden corpus).
+R01 (§Run manifest, §Digests of a request, §Golden corpus).
 No Candler code runs. JSON values travel inside the TOML files as JSON text, so number tokens
 and key order reach the Rust test exactly as written.
 
@@ -82,7 +82,6 @@ FILES = (
     "cell_digest.toml",
     "context_digest.toml",
     "suite_entry_digest.toml",
-    "catalog_content_digest.toml",
     "request_id.toml",
     "context_digest_runs.toml",
 )
@@ -149,7 +148,8 @@ def sort_comparable(c):
     """R01: values by path, the other lists by their fields in order."""
     c = json.loads(jtext(c))
     c["values"].sort(key=lambda v: v["path"])
-    c["snapshots"].sort(key=lambda r: (r["kind"], r["digest"]))
+    if "snapshots" in c:
+        c["snapshots"].sort(key=lambda r: (r["kind"], r["digest"]))
     c["inputs"].sort(key=lambda r: (r["kind"], r["digest"]))
     c["environments"].sort(key=lambda r: (r["plugin"], r["lock_digest"]))
     return c
@@ -164,13 +164,16 @@ def comparable(values, harness, treatment, snapshots, inputs, environments):
         "inputs": inputs,
         "environments": environments,
     }
+    if snapshots is None:
+        del unsorted["snapshots"]
     return sort_comparable(unsorted)
 
 
 def shuffled(c, seed):
     out = json.loads(jtext(c))
     for i, key in enumerate(("values", "snapshots", "inputs", "environments")):
-        out[key] = reordered(out[key], seed * 10 + i)
+        if key in out:
+            out[key] = reordered(out[key], seed * 10 + i)
     return out
 
 
@@ -280,7 +283,20 @@ def invented_cells():
         [],
         [{"plugin": "htn-creator-eval@0.4.2", "lock_digest": hexd("lock-c")}],
     )
-    return [("invented-1", one), ("invented-2", two), ("invented-3", three)]
+    four = comparable(
+        two["values"],
+        two["harness"],
+        two["treatment"],
+        None,
+        two["inputs"],
+        two["environments"],
+    )
+    return [
+        ("invented-1", one),
+        ("invented-2", two),
+        ("invented-3", three),
+        ("invented-4", four),
+    ]
 
 
 def outside_hash(n, variant):
@@ -311,7 +327,16 @@ def outside_hash(n, variant):
 
 def cell_vectors():
     cells = [(name, mini_cell(name)) for name in CELLS] + invented_cells()
-    out = [header("cell_digest.toml", "cell digest vectors (R01 §Run manifest, §Golden corpus).")]
+    out = [
+        header(
+            "cell_digest.toml",
+            "cell digest vectors (R01 §Run manifest, §Golden corpus).",
+            "A cell that carries `snapshots`, empty or not, is hashed with the list; a cell without\n"
+            "the key is hashed without it (`invented-4`, the shape of every new cell). The vectors that\n"
+            "carry `snapshots` stay: the maintainer's own stores (golden and HTN runs) hold manifests of\n"
+            "that shape, and their cell digests must still verify. Do not prune them as dead.",
+        )
+    ]
     out.append(
         "# `comparable` is sorted and unique; `shuffled` has the same content with every list in\n"
         "# another order (the builder sorts it); `outside` and `outside_twin` are two different\n"
@@ -531,68 +556,6 @@ def suite_vectors():
     return "\n".join(out), entries
 
 
-# ---------------------------------------------------------------- catalog
-
-
-def catalog(captured_at, tool_two_description):
-    return {
-        "schema": "tool-catalog-snapshot/1",
-        "captured_at": captured_at,
-        "provider": "rikyu-catalog@0.1.0",
-        "environment": {"python": "3.12.4", "mcp": "1.9.0"},
-        "servers": [
-            {
-                "name": "rikyu",
-                "source_path": "servers/rikyu_mcp",
-                "source_digest": hexd("rikyu-source"),
-                "transport": "stdio",
-                "tools": [
-                    {
-                        "name": "submit_job",
-                        "description": "Submit a batch job.",
-                        "inputSchema": {
-                            "type": "object",
-                            "properties": {"script": {"type": "string"}, "nodes": {"type": "integer"}},
-                            "required": ["script"],
-                        },
-                        "annotations": {"readOnlyHint": False},
-                    },
-                    {
-                        "name": "get_job_status",
-                        "description": tool_two_description,
-                        "inputSchema": {"type": "object", "properties": {"job_id": {"type": "string"}}},
-                        "title": "Job status",
-                    },
-                ],
-            }
-        ],
-    }
-
-
-def catalog_vectors():
-    a = catalog("2026-10-01T00:00:00Z", "Report a job's state.")
-    b = catalog("2026-10-28T12:34:56+09:00", "Report a job's state.")
-    c = catalog("2026-10-01T00:00:00Z", "Report the state of a job.")
-
-    def without_time(doc):
-        return {k: v for k, v in doc.items() if k != "captured_at"}
-
-    out = [header("catalog_content_digest.toml", "catalog snapshot content digests (R01 §Wire schema: tool-catalog snapshot).")]
-    out.append(
-        "# `document_a` and `document_b` differ only in `captured_at` and share `digest_ab`;\n"
-        "# `document_c` differs in one tool description and has `digest_c`. Each digest is over the\n"
-        "# RFC 8785 form of the document without `captured_at`.\n"
-    )
-    out.append("[[vector]]")
-    out.append(f"document_a = {toml_str(jtext(a))}")
-    out.append(f"document_b = {toml_str(jtext(b))}")
-    out.append(f"document_c = {toml_str(jtext(c))}")
-    out.append(f"digest_ab = {toml_str(digest_of(without_time(a)))}")
-    out.append(f"digest_c = {toml_str(digest_of(without_time(c)))}")
-    out.append("")
-    return "\n".join(out), (a, b, c, without_time)
-
-
 # ---------------------------------------------------------------- request id
 
 
@@ -644,23 +607,22 @@ def generate():
     cells_text, comparables = cell_vectors()
     context_text, context_cases = context_vectors()
     suite_text, suite_entries = suite_vectors()
-    catalog_text, catalog_docs = catalog_vectors()
     request_text, request_rows = request_vectors(comparables)
     runs_text, _runs = run_context_vectors()
     texts = dict(
-        zip(FILES, (cells_text, context_text, suite_text, catalog_text, request_text, runs_text))
+        zip(FILES, (cells_text, context_text, suite_text, request_text, runs_text))
     )
-    return texts, comparables, context_cases, suite_entries, catalog_docs, request_rows
+    return texts, comparables, context_cases, suite_entries, request_rows
 
 
-def invariants(comparables, context_cases, suite_entries, catalog_docs, request_rows):
+def invariants(comparables, context_cases, suite_entries, request_rows):
     """Properties of the vectors themselves, checked independently of the files."""
     for name, c in comparables.items():
         base = digest_of(c)
         assert digest_of(sort_comparable(shuffled(c, 7))) == base, name
         assert digest_of(sort_comparable(shuffled(c, 8))) == base, name
         for key in ("values", "snapshots", "inputs", "environments"):
-            if len(c[key]) > 1:
+            if len(c.get(key, [])) > 1:
                 assert shuffled(c, 7)[key] != c[key] or shuffled(c, 8)[key] != c[key], (name, key)
     assert len({digest_of(c) for c in comparables.values()}) == len(comparables)
     for _title, artifacts, snapshots, inputs, metadata in context_cases:
@@ -670,9 +632,6 @@ def invariants(comparables, context_cases, suite_entries, catalog_docs, request_
     for n, entry in enumerate(suite_entries, start=1):
         assert digest_of(suite_projection(entry)) == digest_of(suite_projection(twin(entry, n)))
     assert len({digest_of(suite_projection(e)) for e in suite_entries}) == len(suite_entries)
-    a, b, c, without_time = catalog_docs
-    assert digest_of(without_time(a)) == digest_of(without_time(b)) != digest_of(without_time(c))
-    assert digest_of(a) != digest_of(b)
     assert len({r[4] for r in request_rows}) == len(request_rows)
     for _cell, _n, _path, _hash, rid in request_rows:
         assert len(rid) == 36 and rid[14] == "7" and rid[19] in "89ab" and rid == rid.lower(), rid
@@ -682,8 +641,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--check", action="store_true", help="compare with the files on disk")
     args = ap.parse_args()
-    texts, comparables, context_cases, suite_entries, catalog_docs, request_rows = generate()
-    invariants(comparables, context_cases, suite_entries, catalog_docs, request_rows)
+    texts, comparables, context_cases, suite_entries, request_rows = generate()
+    invariants(comparables, context_cases, suite_entries, request_rows)
     for name, text in texts.items():
         tomllib.loads(text)
     if not args.check:

@@ -6,7 +6,6 @@
 //! credentials, are refused rather than overridden.
 
 use std::sync::Arc;
-use std::time::Duration;
 
 use candler_harness::spec::{CommandSpec, EnvEntry, EnvValue};
 use candler_schemas::primitives::{ContainerId, Marker, RunKey};
@@ -15,12 +14,11 @@ use url::Url;
 use super::expiry::{ceil_secs, wrap_expiry};
 use super::mounts::{MountError, MountRoots, mounts};
 use crate::isolation::RunOutputs;
-use crate::isolation::control::ControlSpec;
 use crate::isolation::docker::{AttachedRun, PROGRAM};
 use crate::isolation::driver::DockerDriver;
 use crate::isolation::hardening::{HardLimits, Role, hardening};
 use crate::isolation::layout::{EXPIRY_MARGIN, LABEL_JOB, LABEL_ROLE, LABEL_RUN};
-use crate::isolation::model::{ContainerPlan, ImageId, Limits, UserSpec};
+use crate::isolation::model::{ContainerPlan, UserSpec};
 use crate::supervise::hook::StopHook;
 use crate::supervise::spawn::SpawnRequest;
 
@@ -204,26 +202,6 @@ pub fn create_argv(plan: &ContainerPlan, cmd: &CommandSpec) -> Result<Vec<String
     argv.push(plan.image.id.0.clone());
     argv.extend(cmd.argv().iter().cloned());
     Ok(argv)
-}
-
-/// The control container of the catalog capture: the image, the same hardening over `limits`, no
-/// network, and the command under its own expiry of `wall`.
-///
-/// # Errors
-/// [`RunArgvError`] when the overlay is refused or the command cannot be wrapped.
-pub fn catalog_spec(
-    image: &ImageId,
-    limits: &Limits,
-    wall: Duration,
-    cmd: &CommandSpec,
-) -> Result<ControlSpec, RunArgvError> {
-    let wrapped = wrap_expiry(cmd, ceil_secs(wall)).map_err(|source| RunArgvError::Command {
-        detail: source.to_string(),
-    })?;
-    // A control container has no gateway: it reserves no name.
-    Ok(ControlSpec::new(&image.0, HardLimits::sized(limits))
-        .env(env_pairs(wrapped.env_overlay(), &[])?)
-        .command(wrapped.argv().to_vec())) // BORROW: the spec owns its words
 }
 
 /// The names the plan reserves for the wrapper: the driver's gateway variables, none when the

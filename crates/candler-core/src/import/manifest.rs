@@ -308,11 +308,15 @@ fn cell_model(
     // BORROW: .to_owned() makes the owned tag
     treatment_ref.tag = Some(treatment.1.to_owned());
     builder = builder.treatment(treatment_ref);
+    // The importer is the only writer of `snapshots`: an imported run's cell digest includes the
+    // list, empty or not.
+    let mut snapshots = Vec::new();
     for rule in &rules.snapshots {
         let hex = provenance_text(folder, &rule.pointer)?;
         // BORROW: .clone() copies the snapshot kind into the cell
-        builder = builder.snapshot(DigestRef::new(rule.kind.clone(), Digest::from_hex(hex)?));
+        snapshots.push(DigestRef::new(rule.kind.clone(), Digest::from_hex(hex)?));
     }
+    builder = builder.snapshots(snapshots);
     let first_inputs = copied_inputs(first)?;
     for run in cell.runs.iter().skip(1) {
         let inputs = copied_inputs(run)?;

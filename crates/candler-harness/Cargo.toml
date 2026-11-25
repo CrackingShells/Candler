@@ -13,11 +13,15 @@ candler-schemas.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 thiserror.workspace = true
 
 [features]
 # The shared fixture suite every driver crate runs on its recorded fixtures.
 conformance = []
+
+[dev-dependencies]
+candler-core.workspace = true
 
 [lints]
 workspace = true

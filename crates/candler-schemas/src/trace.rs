@@ -637,7 +637,7 @@ impl SessionBuilder {
     }
 }
 
-/// Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool, or `other`.
+/// Where a tool call is served from: an object whose `kind` is `builtin`, `mcp`, with the `server` that offers the tool and the server's own name for it, or `other`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
 #[serde(remote = "Self", tag = "kind", rename_all = "snake_case")]
 #[schemars(deny_unknown_fields)]
@@ -645,11 +645,17 @@ impl SessionBuilder {
 pub enum ToolOrigin {
     /// A tool the harness itself provides.
     Builtin,
-    /// A tool an MCP server offers.
+    /// A tool an MCP server offers. Claude Code's reader takes any `mcp__<server>__<tool>` for the
+    /// tool of `<server>`, declared or not; `OpenCode`'s takes only a declared server, because its
+    /// spelling `<server>_<tool>` cannot be split without the server names.
     #[non_exhaustive]
     Mcp {
         /// The name of the MCP server.
         server: String,
+        /// The tool's name at the server, without the harness's prefix. A trace written before the
+        /// field existed has none.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tool: Option<String>,
     },
     /// Any other source.
     Other,
@@ -658,10 +664,13 @@ pub enum ToolOrigin {
 object_only!(ToolOrigin);
 
 impl ToolOrigin {
-    /// An MCP tool of `server`.
+    /// An MCP tool of `server`, named `tool` there.
     #[must_use]
-    pub const fn mcp(server: String) -> Self {
-        Self::Mcp { server }
+    pub const fn mcp_tool(server: String, tool: String) -> Self {
+        Self::Mcp {
+            server,
+            tool: Some(tool),
+        }
     }
 }
 

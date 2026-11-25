@@ -1,0 +1,67 @@
+# Snapshot out (P12): leaf report
+
+Base `7d497545` (`origin/feat/integrity`). Tip: see the commit table. Branch `leaf/l3-snapshot-out`, build slot `l3-2`.
+
+## Commits
+
+| Commit | Subject |
+|---|---|
+| `e8b07a32` | `test(api): read a run's installed MCP config back through inspect` |
+| `4988b245` | `feat(schemas)!: drop the catalog snapshot and show MCP in inspect` |
+| `cc7f12c8` | `refactor(runner): remove the constant catalog producer, show MCP config` (the roadmap's line is 88 characters; the commit hook allows 72) |
+
+The schemas commit touches only `crates/candler-schemas/`, as CI's Commit messages job requires. It is a major bump on the schema line (a record valid before is invalid: `catalog-snapshot.schema.json` leaves, `inspect-run` loses `catalog` and requires `mcp`), so it carries `!` and a `BREAKING CHANGE:` footer (CONTRIBUTING §Schema line).
+
+**The workspace does not build at the schemas commit alone.** `candler-core` and `candler` still name `CatalogSnapshot`, `InspectRun.catalog` and `CatalogError` there, and `candler-schemas`'s own `guard_refusal` reads `docs/contract/codes.toml` and the oracle vectors, which live outside the crate and change in the next commit. The step-2 commit restores a green workspace. The step-1 guard test fails by design on its own commit.
+
+## Gates
+
+| Gate | Verdict | Evidence |
+|---|---|---|
+| Guard on `candler run` -> `inspect`, one declared server, JSON and text | PASS | `inspect_shows_the_mcp_server_a_run_was_launched_with` launches `candler run --set mcp.servers.fs.command=mcp-fs --set 'mcp.servers.fs.args=["data"]'` through the fake docker, reads the sealed run back, and finds `mcp.servers.fs.command = "mcp-fs"` and `mcp.servers.fs.args = ["data"]` in `record["mcp"]` and the same two lines in the text form. On the base commit (`e8b07a32`): FAIL, `the record shows the mcp values: {"catalog":{"provider":"candler-image@1","schema":"tool-catalog-snapshot/1","servers":[]},...}`. |
+| `CATALOG_PROGRAM`, `CatalogCommand`, `CommandCatalogProvider`, `CatalogStep`, the fake docker's constant, the provider seam | PASS | All deleted: `runner/evidence/catalog.rs`, `resolve/steps/catalog.rs`, the constant in `commands/preflight.rs`, the `printf` branch of the fake `docker run`, `M2bServices.catalog`, `catalog_spec` and its two control-kind rows. `CatalogProvider` had one implementor besides test fakes, so the seam went with it. The plumbing that only carried the catalog text to the seal went too: `StepReport.blobs`/`blob()`, `CellRun.blobs`/`with_blobs()`, `RunWriter::blob`. |
+| `comparable` carries no catalog snapshot; new digest version vectors; old vectors verify | PASS (accepted by the coordinator on the condition that nothing makes new runs set it) | `Comparable.snapshots` is `Option<Vec<DigestRef>>`: `None` is left out of the record and the hash, and `Some(list)`, empty or not, is written and hashed as before #76. Only the importer sets it (`import/manifest.rs` via `ComparableBuilder::snapshots`), because an imported run's digest included it. Guard: `a_cell_from_resolve_is_stored_and_hashed_without_snapshots` runs `candler run`, reads the stored manifest, finds no `snapshots` key, and recomputes the cell digest with `Digest::of_canonical` to equal the run key. Bite: `build` forced to `Some([])` makes it fail on the key. Oracle: `cell_digest.toml` has 7 vectors; the six that carry `snapshots` (`invented-1` with `[]`, back to its first body and digest) keep their digests, `invented-4` is the key-less shape. No existing manifest's digest moves, so the version marker stays `run-manifest/1` (the digest doc comment requires a new tag only when an existing manifest's digest changes). The experiment path `snapshots` is removed too (row below). |
+| `inspect` callers gate (htn-creator-eval@0.5.3) | PASS | Supplied by the lead, not re-run: all 279 `.py`/`.sh` files under the HTN and candler paths were searched for `candler ... inspect`, `"inspect"`, `["catalog"]` and `.get("catalog")`. The one hit, `infrastructure/htn_creator_eval/cli.py:1053`, forwards to the HTN's own trace profiler, not to `candler inspect`. `candler-plugin/` has no `inspect` or `catalog` reference. `_catalog_snapshot.py` reads the HTN's own committed `catalogs/*.json`. No reader of `InspectRun.catalog`, so it was dropped. |
+| `InspectRun.catalog` and `catalog_of` gone; an old sealed run still reads | PASS | Both deleted. `inspect` reads the manifest only; the stored blob is left in the store and not shown, and no shim reads it. The old manifests read through `RunManifest` (unchanged `snapshots` reader), covered by the golden and import guards in the workspace run. |
+| `tool-catalog-snapshot/1` gone | PASS | `candler-schemas/src/catalog.rs`, `schema/catalog-snapshot.schema.json`, `tests/it/catalog_fixtures.rs`, `catalog_properties.rs`, the `tests/fixtures/{spec,upstream}` fixtures, the catalog test in `guard_wire_shapes.rs` and `guard_cell_digest.rs`, and `catalog_content_digest.toml` with its generator section. The plan lists `catalog_content_digest.toml` among vectors that stay; the leaf says vectors only `/1` uses go. Only the deleted digest test read it, so it went. |
+| README, AGENTS.md, live candler-v1 M6c Goal | PASS | `per-run tool census` in `README.md:7`, `AGENTS.md:8`, and `__roadmap__/candler-v1/.../integrity/README.md:7`; `README.md:12` no longer lists catalog providers, `CONTRIBUTING.md` drops the `catalog` surface, and `__design__/architecture.md` states a run's tools by the resolved `mcp.*` config, the census and the trace, with `comparable.snapshots` described as the imported old shape; `AGENTS.md` names "a tool census" among the stored states. No page under `docs/` quoted the phrase. Done leaves and reports keep their words. |
+| Refusal codes only the removed code emitted | PASS | `catalog.*` (6 schemas codes), `runner.catalog_command_failed`, `runner.catalog_timeout`, `runner.catalog_unreadable`, and the three `[internal]` rows of the core `CatalogError`; `docs/contract/codes.toml` and `index.md` regenerated (`CANDLER_BLESS_CONTRACT=1`); the `catalog` surface left `SURFACES`; the two `CatalogError` rows left `__roadmap__/m3-lean-cli/refusal_scope.tsv`, which `guard_refusal_codes` reads as its oracle. |
+| `cargo fmt --check`, clippy `-D warnings`, `cargo doc -D warnings` | PASS | exit 0 for each on the tip. |
+| Experiment path `snapshots` | PASS | The row left `CONFIGURATION_PATHS` (48 rows) and `configuration-paths.md`, so resolve refuses it as an unknown path; the four tests that derived it no longer do. HTN check at the tag (`git grep snapshots htn-creator-eval@0.5.3 -- *.toml *.json`, excluding reports and catalogs): no experiment sets it. |
+| Evaluator-protocol `snapshots` (`needs`, `context`) | BLOCKED, left for the lead | The HTN check passes (no evaluator declares a `snapshots` need; the only hits are two prose lines in its candler-plugin). But the removal is not safe: `python/candler-evaluator/src/candler_evaluator/plugin.py:119` reads `context["snapshots"]` unconditionally and `loop.py:43` writes `"snapshots": []` into needs, so every plug-in on the published helper would break on a missing key; the import grading step fills `context.snapshots` from the imported cell, so the context digests of `context_digest_runs.toml` and of imported outcomes would move; and the three schema files, `field_classes.toml`, the registry/assemble refusals and the contract page all change. Nothing was changed. |
+| `cargo nextest run --workspace` | PASS | `Summary [198.378s] 730 tests run: 730 passed (6 slow), 31 skipped` (729 in round 1). The 31 skipped are the Docker-gated `container-e2e` tests, which the lead reads from the PR's CI. The first run on the tip failed five (the guard, three pinned-digest tests, and the refusal-scope oracle); each is fixed in the step-2 commit (see Pins retaken). |
+| `container-e2e` green on the PR | BLOCKED | Read from the PR's CI by the lead. |
+| Step 3 scratch bite | PASS | On a scratch branch from the step-2 tip, `inspect.rs` shows `mcp: BTreeMap::new()`; the guard FAILS: `assertion left == right failed: the declared command is shown: {... "outcomes":[] ...}` at `guard_inspect_mcp_config.rs:57`. Scratch worktree, branch and target dir removed. The fresh verifier is the lead's. |
+
+## Pins retaken
+
+Four tests pinned digests of cells built by the real planner (`guard_egress_setting`: `LISTED_DIGEST`, `BASE_DIGEST`; `guard_run_plan::t3_one_level_plans_the_old_bytes`: both cells, the experiment digest, and the replicate order, which the planner derives from the digests). Those cells hashed an empty `snapshots` list before; they hash without it now, so the pins moved. They were re-taken from the producer's output, which is the new digest version's meaning, not a drift.
+
+## What it leaves
+
+**How it is developed.** The guard was run on the base first and failed for the stated reason after two false starts of the test itself (an absolute path in `--set` that the resolver refuses, and a fake docker with no top-level `inspect`, which the start probe of a declared stdio server calls). No Docker, no live model, one build slot (`l3-2`), no scratch worktree kept. The Python generator reran under `uv run --with rfc8785` and changed only `cell_digest.toml`.
+
+**What it leaves in the code.** One producer of the MCP record: the resolved `mcp.*` values, written by resolve and read by `inspect` from `comparable.values`. The constant catalog, its capture, its resolve step, its seam, the blob plumbing that carried its text, its schema, its fixtures, its refusal codes and its inspect surface are deleted in the same change. The one thing kept without a producer is the optional `comparable.snapshots` read of manifests that list it (gate row above); the importer still writes it for imported legacy runs, which is the field's only live writer.
+
+**How it is consumed.** The experimenter's `inspect` shows `mcp.*` by path, in the JSON record (`mcp`) and as `path<TAB>value` lines in text. A run with no MCP server shows an empty `mcp`. The record no longer shows a tool catalog Candler did not observe. `inspect-run.schema.json` changes (`catalog` out, `mcp` required), which is the compatibility item below.
+
+## Not covered
+
+- **HTN-side follow-up for the lead to hand on:** htn-creator-eval@0.5.3 keeps grading, but its one test that validates against Candler's `catalog-snapshot.schema.json` now skips. The schema file has to move into the HTN repository (the `/1` marker stays the HTN's own). Nothing in the HTN repo was touched.
+- Step 3's fresh verifier, and the PR's `container-e2e`: the lead's.
+- The evaluator-protocol `needs.snapshots` and `context.snapshots` (row above).
+- **HTN-side follow-up (the coordinator takes it on):** move `catalog-snapshot.schema.json` into htn-creator-eval and un-skip its validation test; it belongs to that repository.
+
+## Compatibility for consumers
+
+- `inspect-run/1` consumers: `catalog` is gone and `mcp` (object, path to value) is required.
+- `run-manifest/1`: old manifests keep their digests, with `snapshots` absent, empty or listed. A cell Candler makes now carries no `snapshots` key, so the run key of a new run differs from the key the same experiment had before #76 (the empty list is no longer hashed, and `codemode` is filled by an earlier leaf).
+- The schema line takes a major bump (minor while `0.y.z`); an experiment or `--set` that names `snapshots` is refused as an unknown path.
+
+## Review (round 3)
+
+1. **Raw-ingest key.** `import/raw.rs` `comparable_of` now writes `.snapshots(Vec::new())`, as the manifest importer does; the field's doc comment names both importers. Test `i1_a_raw_cell_keeps_the_digest_it_had_with_an_empty_snapshots_list` rebuilds the pre-#76 cell text by hand (sorted keys, `"snapshots":[]`), hashes it with `Digest::of_bytes`, and requires the stored run key to name that digest. On the round-2 tip (before the fix) it FAILED: `the empty list is kept: left Null, right Array []`. On the fixed tip it passes.
+2. **Refusal proven.** `r3_an_experiment_cannot_set_snapshots` asserts code `experiment.unknown_path` and the path text for `--set snapshots=[]` and for a `[fixed]` value. `SNAPSHOTS` left `TYPED_ROOTS` and `candler-schemas` `paths.rs` (no importer used the constant; they write the literal path).
+3. **Wording.** `execution.rs` (field doc, `from_resolved` doc, the sources `$comment`) and the generated `run-manifest.schema.json` say the key is absent for a run Candler made and present, possibly empty, only for an imported run.
+4. **Helper.** `RunContext.from_wire` reads `context.get("snapshots", [])`. `tests/test_guard_context.py::test_a_context_without_snapshots_is_accepted` FAILED before (`KeyError: 'snapshots'`) and passes after; run as CI does (`uv run --frozen pytest -q`: 12 passed; `ruff check`, `ruff format --check` clean). The wire models were regenerated for the new schema descriptions. `loop.py`'s `"snapshots": []` is the helper's `needs` output, which the wire still requires, so it stays.
+5. **What the field is now.** The `needs.snapshots` and `context.snapshots` descriptions in `evaluation.rs` (and the four generated evaluator schemas) and the evaluator-protocol section of `__design__/architecture.md` say: always empty for runs Candler makes; kept so the released helper and stored grading contexts stay valid; removed once a helper that treats it as optional is released. No valid record became invalid.

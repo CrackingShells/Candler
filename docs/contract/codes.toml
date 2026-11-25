@@ -65,6 +65,11 @@ side = "experiment"
 enum = "ExecutionError"
 variant = "NotPositive"
 
+[schemas."experiment.replicates_not_count"]
+side = "experiment"
+enum = "ExecutionError"
+variant = "ReplicatesNotCount"
+
 [schemas."experiment.factor_without_levels"]
 side = "experiment"
 enum = "ExecutionError"
@@ -395,36 +400,6 @@ side = "plugin"
 enum = "EvaluationError"
 variant = "ManifestToml"
 
-[schemas."catalog.schema_tag_mismatch"]
-side = "environment"
-enum = "CatalogError"
-variant = "SchemaTag"
-
-[schemas."catalog.field_unset"]
-side = "candler"
-enum = "CatalogError"
-variant = "MissingField"
-
-[schemas."catalog.extra_key_reserved"]
-side = "candler"
-enum = "CatalogError"
-variant = "ReservedKey"
-
-[schemas."catalog.field_null"]
-side = "candler"
-enum = "CatalogError"
-variant = "Null"
-
-[schemas."catalog.name_empty"]
-side = "environment"
-enum = "CatalogError"
-variant = "EmptyName"
-
-[schemas."catalog.name_repeated"]
-side = "environment"
-enum = "CatalogError"
-variant = "DuplicateName"
-
 [schemas."experiment.unknown_field"]
 side = "experiment"
 enum = "ExecutionError"
@@ -541,25 +516,15 @@ side = "experiment"
 enum = "PlanError"
 variant = "StoredCellUnknown"
 
+[runner."experiment.replicates_conflict"]
+side = "experiment"
+enum = "PlanError"
+variant = "ReplicatesConflict"
+
 [runner."experiment.setting_as_factor"]
 side = "experiment"
 enum = "PlanError"
 variant = "SettingAsFactor"
-
-[runner."runner.catalog_command_failed"]
-side = "environment"
-enum = "CatalogError"
-variant = "Command"
-
-[runner."runner.catalog_timeout"]
-side = "environment"
-enum = "CatalogError"
-variant = "Timeout"
-
-[runner."runner.catalog_unreadable"]
-side = "environment"
-enum = "CatalogError"
-variant = "Parse"
 
 [runner."runner.census_no_init"]
 side = "environment"
@@ -797,6 +762,11 @@ side = "experiment"
 enum = "DriverError"
 variant = "InvalidValue"
 
+[harness."experiment.mcp_server_prefix_ambiguous"]
+side = "experiment"
+enum = "DriverError"
+variant = "AmbiguousServers"
+
 [harness."harness.version_unreadable"]
 side = "environment"
 enum = "DriverError"
@@ -821,6 +791,7 @@ variant = "EmptyToolName"
 side = "environment"
 enum = "InitReportError"
 variant = "ServersNotList"
+lifted = "No harness's server list is read: the census records tools only, and a server's status stays in the harness's own raw output."
 
 [harness."harness.inventory_unrecorded"]
 side = "environment"
@@ -1413,21 +1384,6 @@ enum = "PlanError"
 variant = "Lock"
 reason = "a lock that cannot be tried is an operating-system fault, not an input of the author"
 
-[internal."candler_core::runner::evidence::catalog::CatalogError::Unavailable"]
-enum = "CatalogError"
-variant = "Unavailable"
-reason = "an unwired capture port is a fault of the binary, not an input of the author"
-
-[internal."candler_core::runner::evidence::catalog::CatalogError::AbsolutePath"]
-enum = "CatalogError"
-variant = "AbsolutePath"
-reason = "the catalog is captured by Candler's own command, so an absolute path is Candler's fault"
-
-[internal."candler_core::runner::evidence::catalog::CatalogError::Digest"]
-enum = "CatalogError"
-variant = "Digest"
-reason = "a catalog with no canonical form is a fault of the capture, not an input of the author"
-
 [internal."candler_core::runner::evidence::census::CensusError::Value"]
 enum = "CensusError"
 variant = "Value"
@@ -1973,8 +1929,3 @@ variant = "TokenSecret"
 side = "experiment"
 enum = "ResolveError"
 variant = "ReplicatesPath"
-
-[resolve."experiment.replicates_not_integer"]
-side = "experiment"
-enum = "ResolveError"
-variant = "ReplicatesNotInteger"

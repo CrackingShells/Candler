@@ -58,6 +58,11 @@
     "job": {
       "description": "The job that made the run."
     },
+    "mcp": {
+      "additionalProperties": true,
+      "description": "The resolved `mcp.*` values the cell hashes, by path: the MCP configuration the run was\ninstalled with.",
+      "type": "object"
+    },
     "measured": {
       "additionalProperties": true,
       "description": "The other measured values, by path.",
@@ -96,6 +101,7 @@
     "schema",
     "run",
     "sealed",
+    "mcp",
     "provenance",
     "measured",
     "outcomes"

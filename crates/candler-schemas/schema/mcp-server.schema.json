@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "McpServerKind": {
+      "description": "The transport family a server speaks: a locally-started command or a remote URL.\n\nA `stdio` (or `local`) server starts a command and is the default when an entry sets no `type`;\na remote one is reached at a URL. The renderer reads `http`, `sse` and `remote` alike.",
+      "oneOf": [
+        {
+          "const": "stdio",
+          "description": "A server that prints the MCP protocol over a child process's standard streams.",
+          "type": "string"
+        },
+        {
+          "const": "local",
+          "description": "A local server the drivers treat as a stdio one.",
+          "type": "string"
+        },
+        {
+          "const": "http",
+          "description": "A server reached over HTTP.",
+          "type": "string"
+        },
+        {
+          "const": "sse",
+          "description": "A server reached over a Server-Sent Events stream.",
+          "type": "string"
+        },
+        {
+          "const": "remote",
+          "description": "A server reached at a URL.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "$id": "urn:candler:schemas:mcp-server",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One entry of an experiment's `mcp.servers`, as the drivers read it.\n\nA server is launched from a `command` (with optional `args` and `env`) or reached at a `url`\n(with optional `headers`); exactly one of `command` and `url` is required, and a `type` marker\nagrees with it: `stdio` or `local` with `command`, `http`, `sse` or `remote` with `url`.\n`codemode` selects the prompts the agent sees, and is `false` when absent. A `name`\nleaf names the server under a key; without it the key names it. Every field the drivers read\nis typed here, so a non-text `command`, a non-list `args` or a non-text environment value fails\nvalidation rather than being read leniently.",
+  "oneOf": [
+    {
+      "properties": {
+        "headers": false,
+        "type": {
+          "enum": [
+            "stdio",
+            "local"
+          ]
+        },
+        "url": false
+      },
+      "required": [
+        "command"
+      ]
+    },
+    {
+      "properties": {
+        "args": false,
+        "command": false,
+        "env": false,
+        "type": {
+          "enum": [
+            "http",
+            "sse",
+            "remote"
+          ]
+        }
+      },
+      "required": [
+        "url"
+      ]
+    }
+  ],
+  "properties": {
+    "args": {
+      "description": "The arguments the launched command receives, one per list item.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "codemode": {
+      "default": false,
+      "description": "Whether the server's tools show in the agent's codemode prompts; false when absent.",
+      "type": "boolean"
+    },
+    "command": {
+      "description": "The launched command, as a program name or path; required of an entry with no URL.",
+      "type": "string"
+    },
+    "env": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The environment of the launched command, by variable name.",
+      "type": "object"
+    },
+    "headers": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The headers a remote server is called with.",
+      "type": "object"
+    },
+    "name": {
+      "description": "The name the server renders under, when its key would not do; a key\nmatches the same pattern.",
+      "pattern": "^[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*(?![\\s\\S])",
+      "type": "string"
+    },
+    "type": {
+      "$ref": "#/$defs/McpServerKind",
+      "description": "The transport marker: `stdio` or `local` for a launched command, `http`, `sse` or `remote`\nfor a URL; absent when the driver would launch a command."
+    },
+    "url": {
+      "description": "The URL a remote server is reached at.",
+      "type": "string"
+    }
+  },
+  "title": "McpServer",
+  "type": "object"
+}

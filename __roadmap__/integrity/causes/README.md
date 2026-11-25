@@ -7,21 +7,21 @@ Level 1 of M6c Integrity, after `../conventions.md`. Four independent concepts r
 The causes D1 and D5 are removed where S1, B1 and the silent acceptances came from, each shown by an observation that fails on the base.
 
 ## Pre-conditions
-- [ ] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh status __roadmap__/integrity/conventions.md` prints `done`
+- [x] `[cmd]` `bash ~/.claude/plugins/cache/cracking-shells/managing-roadmaps/1.3.0/skills/managing-roadmaps/scripts/dirtree-rdm.sh status __roadmap__/integrity/conventions.md` prints `done`
 
 ## Success Gates
-- ⬜ `sealed_run_producer.md`, `collect_oracle.md`, `one_reader.md` and `kill_off_tty.md` are `done`, each with its observation seen failing on the base
-- ⬜ `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass on the merged level
-- ⬜ `checkpoint/` is `done`
+- ✅ `sealed_run_producer.md`, `collect_oracle.md`, `one_reader.md` and `kill_off_tty.md` are `done`, each with its observation seen failing on the base
+- ✅ `cargo fmt --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo nextest run --workspace` and `RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps` pass on the merged level (the last merge, #80 at `0825782c`: CI run 45504233235, jobs Format, Gates (Lint, Test, Document), green on `dfb9a177`)
+- ✅ `checkpoint/` is `done`
 
 ## Status
 ```mermaid
 graph TD
-    sealed_run_producer[Sealed run producer]:::planned
-    collect_oracle[Collect oracle]:::planned
-    one_reader[One reader]:::planned
-    kill_off_tty[Kill off a TTY]:::planned
-    checkpoint[Seam review 1 and checkpoint]:::planned
+    sealed_run_producer[Sealed run producer]:::done
+    collect_oracle[Collect oracle]:::done
+    one_reader[One reader]:::done
+    kill_off_tty[Kill off a TTY]:::done
+    checkpoint[Seam review 1 and checkpoint]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -32,11 +32,11 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `sealed_run_producer.md` | 📄 Leaf Task | ⬜ Planned |
-| `collect_oracle.md` | 📄 Leaf Task | ⬜ Planned |
-| `one_reader.md` | 📄 Leaf Task | ⬜ Planned |
-| `kill_off_tty.md` | 📄 Leaf Task | ⬜ Planned |
-| `checkpoint/` | 📁 Directory | ⬜ Planned |
+| `sealed_run_producer.md` | 📄 Leaf Task | ✅ Done |
+| `collect_oracle.md` | 📄 Leaf Task | ✅ Done |
+| `one_reader.md` | 📄 Leaf Task | ✅ Done |
+| `kill_off_tty.md` | 📄 Leaf Task | ✅ Done |
+| `checkpoint/` | 📁 Directory | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |

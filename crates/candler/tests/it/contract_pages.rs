@@ -29,7 +29,10 @@ fn versions() -> Versions {
     Versions::read(&repo_root()).expect("the manifests are readable")
 }
 
-/// Compares a file with its generated text, or writes it when blessing.
+/// Compares a file with its generated text, or writes it when blessing. The panic names the first
+/// differing line, and when it is a row of a table, its first cell: the row of a Fields table
+/// (a path, a capability label or a code), so a driver whose answer changed is followed to the row
+/// at fault.
 fn settle(name: &str, generated: &str) {
     let path = docs_dir().join(name);
     let current = fs::read_to_string(&path).ok();
@@ -45,14 +48,25 @@ fn settle(name: &str, generated: &str) {
             panic!("docs/contract/{name} does not exist; regenerate with CANDLER_BLESS_CONTRACT=1")
         }
         Some(current) => {
-            let at = current
+            let line = current
                 .lines()
                 .zip(generated.lines())
                 .position(|(a, b)| a != b)
-                .unwrap_or(current.lines().count().min(generated.lines().count()));
+                .unwrap_or(current.lines().count().min(generated.lines().count()))
+                + 1;
+            let current_line = current.lines().nth(line - 1).unwrap_or_default();
+            let generated_line = generated.lines().nth(line - 1).unwrap_or_default();
+            let row = current_line
+                .strip_prefix("| ")
+                .and_then(|rest| rest.split(" | ").next())
+                .map(|label| label.trim_end_matches(' '))
+                .filter(|label| !label.is_empty())
+                .map_or_else(
+                    || "a line of the surface outside a table".to_owned(),
+                    |label| format!("the `{label}` row"),
+                );
             panic!(
-                "docs/contract/{name} differs from the generated page at line {}; regenerate with CANDLER_BLESS_CONTRACT=1",
-                at + 1
+                "docs/contract/{name} differs at line {line} in {row}: committed `{current_line}` vs generated `{generated_line}`; regenerate with CANDLER_BLESS_CONTRACT=1"
             );
         }
     }
@@ -98,8 +112,12 @@ fn d1_regenerating_the_pages_changes_nothing() {
     )
     .expect("the capability page is rendered");
     settle("harness-capabilities.md", &capabilities);
-    let paths = render_paths(&versions, existing("configuration-paths.md").as_deref())
-        .expect("the configuration paths page is rendered");
+    let paths = render_paths(
+        registry,
+        &versions,
+        existing("configuration-paths.md").as_deref(),
+    )
+    .expect("the configuration paths page is rendered");
     settle("configuration-paths.md", &paths);
     let file_page = render_file_page(&versions, existing("config-file.md").as_deref())
         .expect("the configuration file page is rendered");

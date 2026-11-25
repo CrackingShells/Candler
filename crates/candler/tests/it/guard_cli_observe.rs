@@ -195,6 +195,201 @@ fn container_calls(world: &World) -> Vec<String> {
         .collect()
 }
 
+/// Guards: `resolve` refuses a replicate count the plan refuses, with the same record: `0` from
+/// `--set` and from `[fixed]` is `experiment.count_zero` at `/replicates`, and a `[fixed]` count
+/// that differs from the file's own is `experiment.replicates_conflict`.
+///
+/// Oracle: the codes and the pointer, written by hand.
+///
+/// Bite: leave the cell check without the replicate count.
+#[test]
+fn o1_resolve_refuses_a_replicate_count_the_plan_refuses() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let out = resolve(
+        &world,
+        &models.url(),
+        &["--set", "replicates=0"],
+        Some(TOKEN),
+    );
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.count_zero", "{record}");
+    assert_eq!(record["path"], "/replicates", "{record}");
+    let original = fs::read_to_string(&world.experiment).unwrap();
+    fs::write(
+        &world.experiment,
+        original.replace("[fixed]\n", "[fixed]\nreplicates = 4\n"),
+    )
+    .unwrap();
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.replicates_conflict", "{record}");
+    assert_eq!(record["path"], "/replicates", "{record}");
+    world.remove();
+}
+
+/// Guards: `resolve --set replicates=<v>` refuses a value that is no count with the record the
+/// op API's planning gives it (`guard_silent_acceptance`, the rows of the same three values): the
+/// code `experiment.replicates_not_count` at `/replicates`, and a message that gives the range.
+///
+/// Oracle: the code, the pointer and the range, written by hand.
+///
+/// Bite: `resolve` reads the count in its own layer, so `-1` is refused as "not a whole number"
+/// under a code of its own and `5000000000` as a cost cap that is not positive.
+#[test]
+fn o1_resolve_refuses_what_is_no_replicate_count_as_the_plan_does() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    for value in ["-1", "2.5", "5000000000"] {
+        let set = format!("replicates={value}");
+        let out = resolve(&world, &models.url(), &["--set", set.as_str()], Some(TOKEN));
+        let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+        assert_eq!(
+            record["code"], "experiment.replicates_not_count",
+            "{value}: {record}"
+        );
+        assert_eq!(record["path"], "/replicates", "{value}: {record}");
+        let message = record["message"].as_str().unwrap_or_default();
+        assert!(message.contains("1 to 4294967295"), "{value}: {message}");
+    }
+    world.remove();
+}
+
+/// Guards: `resolve` accepts a valid experiment whose `request.treatment` factor has two table
+/// levels, each its own skills commit: every level has a resolution, so no level is reported
+/// unresolved.
+///
+/// Oracle: the exit code and the two tags, written here; `run` plans the same file to two cells.
+///
+/// Bite: give the cell check one resolution for every level.
+#[test]
+fn o1_resolve_accepts_an_experiment_with_two_treatment_levels() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    world.tag_new_commit("v2");
+    let source = world.skills.display().to_string();
+    let text_of = fs::read_to_string(&world.experiment).unwrap();
+    let factor = format!(
+        "[[factors]]\npath = \"request.treatment\"\nlevels = [{{name = \"demo\", tag = \"v1\", source = \"{source}\"}}, {{name = \"demo\", tag = \"v2\", source = \"{source}\"}}]\n\n[budget.per_run]"
+    );
+    fs::write(
+        &world.experiment,
+        text_of.replace("[budget.per_run]", &factor),
+    )
+    .unwrap();
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let stderr = text(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "stderr: {stderr}");
+    assert!(!stderr.contains("has no resolution"), "{stderr}");
+    world.remove();
+}
+
+/// Guards: a treatment level that cannot be resolved is reported the same way whether it is the
+/// first level or a later one: the failed check goes through the failure lines on stdout, and the
+/// refusal on stderr is the preflight's.
+///
+/// Oracle: the exit code and the stdout and stderr of two real runs, one with the missing tag in
+/// the first level and one with it in the second; the tags are written here.
+///
+/// Bite: a later level's preflight failure is returned as the refusal alone, so stdout stays
+/// empty and the failed check is not listed.
+#[test]
+fn o1_resolve_reports_a_later_level_failure_like_a_first_one() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let source = world.skills.display().to_string();
+    let original = fs::read_to_string(&world.experiment).unwrap();
+    let outputs: Vec<Output> = [("nope", "v1"), ("v1", "nope")]
+        .iter()
+        .map(|(first, second)| {
+            let factor = format!(
+                "[[factors]]\npath = \"request.treatment\"\nlevels = [{{name = \"demo\", tag = \"{first}\", source = \"{source}\"}}, {{name = \"demo\", tag = \"{second}\", source = \"{source}\"}}]\n\n[budget.per_run]"
+            );
+            fs::write(
+                &world.experiment,
+                original.replace("[budget.per_run]", &factor),
+            )
+            .unwrap();
+            resolve(&world, &models.url(), &[], Some(TOKEN))
+        })
+        .collect();
+    let [first, later] = outputs.as_slice() else {
+        unreachable!("two runs")
+    };
+    assert_eq!(first.status.code(), Some(2), "{}", text(&first.stderr));
+    assert!(
+        !first.stdout.is_empty(),
+        "no failure line for the first level: {}",
+        text(&first.stderr)
+    );
+    assert_eq!(text(&later.stdout), text(&first.stdout));
+    assert_eq!(text(&later.stderr), text(&first.stderr));
+    world.remove();
+}
+
+/// Guards: `resolve` builds each cell, so an absolute path in the `args` of a server (which `run`
+/// refuses as `experiment.absolute_path`) and a malformed server written in a factor level are
+/// refused by `resolve` too.
+///
+/// Oracle: the code and the side, written by hand; the paths and the factor are written here.
+///
+/// Bite: leave `resolve` at the resolved values, so neither input is refused.
+#[test]
+fn o1_resolve_refuses_what_a_cell_holds() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let absolute = [
+        "--set",
+        "mcp.servers.fs.command=mcp-fs",
+        "--set",
+        "mcp.servers.fs.args=[\"/home/me/data\"]",
+    ];
+    let out = resolve(&world, &models.url(), &absolute, Some(TOKEN));
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.absolute_path", "{record}");
+    let mut experiment = fs::read_to_string(&world.experiment).unwrap();
+    experiment.push_str("\n[[factors]]\npath = \"mcp.servers.fs\"\nlevels = [{ command = 7 }]\n");
+    fs::write(&world.experiment, experiment).unwrap();
+    let out = resolve(&world, &models.url(), &[], Some(TOKEN));
+    let record: serde_json::Value = serde_json::from_str(text(&out.stderr).trim_end()).unwrap();
+    assert_eq!(record["code"], "experiment.cell_value_invalid", "{record}");
+    world.remove();
+}
+
+/// Guards: a malformed MCP server (a `command` that is not text) is refused by `resolve` and by
+/// `run` with the same record: the code `experiment.cell_value_invalid`, side `experiment`, and
+/// the path of the server in the message.
+///
+/// Oracle: the code, the side and the path, written by hand; the server is set with `--set`.
+///
+/// Bite: read the servers leniently again in the verb, as the start check did, so `resolve` prints
+/// the values and exits 0.
+#[test]
+fn o1_resolve_and_run_refuse_a_malformed_mcp_server_with_one_record() {
+    let world = world();
+    let models = Models::start(TOKEN);
+    let set = ["--set", "mcp.servers.fs.command=7"];
+    let resolved = resolve(&world, &models.url(), &set, Some(TOKEN));
+    let ran = world.launch_with(&set);
+    let records: Vec<serde_json::Value> = [&resolved, &ran]
+        .iter()
+        .map(|out| {
+            assert_eq!(out.status.code(), Some(2), "{}", text(&out.stderr));
+            let line = text(&out.stderr);
+            serde_json::from_str(line.trim_end()).unwrap_or_else(|e| panic!("{e}: {line}"))
+        })
+        .collect();
+    for record in &records {
+        assert_eq!(record["code"], "experiment.cell_value_invalid", "{record}");
+        assert_eq!(record["side"], "experiment", "{record}");
+        let message = record["message"].as_str().unwrap_or_default();
+        assert!(message.contains("mcp.servers.fs"), "{message}");
+    }
+    assert_eq!(records[0]["code"], records[1]["code"]);
+    assert_eq!(records[0]["message"], records[1]["message"]);
+    world.remove();
+}
+
 /// Guards: O1 — `candler resolve` prints every value and setting with its source from a real
 /// preflight, from a directory outside the project, and starts no job and no agent. A project
 /// `candler.toml` gives `plugins.dirs`, a user configuration gives `slots.count`, `--set` gives

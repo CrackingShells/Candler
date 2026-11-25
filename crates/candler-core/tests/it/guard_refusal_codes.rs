@@ -846,7 +846,6 @@ fn wrapped_cases() -> Vec<Wrapped> {
             Box::new(PlanError::Driver(DriverError::Unsupported {
                 path: "/budget/per_run/turns".to_owned(),
                 harness: "h".to_owned(),
-                version: semver::Version::new(1, 0, 0),
                 detail: "d".to_owned(),
             })),
             "experiment.setting_unsupported",
@@ -856,6 +855,16 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Cell",
             Box::new(PlanError::Cell { source: absolute() }),
             "experiment.absolute_path",
+        ),
+        case(
+            "PlanError",
+            "Replicates",
+            Box::new(PlanError::Replicates {
+                source: ExecutionError::Zero {
+                    field: "replicates",
+                },
+            }),
+            "experiment.count_zero",
         ),
         case(
             "PlanError",

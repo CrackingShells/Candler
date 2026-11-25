@@ -672,12 +672,17 @@ async fn drive(
     let mut offline: Option<candler_schemas::primitives::NameVersion> = None;
     let mut offline_sessions = Vec::new();
     let mut offline_events = Vec::new();
+    // The servers the cell declares: an export that spells a call `<server>_<tool>` is read
+    // against them.
+    let declared: Vec<String> = candler_harness::mcp::servers(&view)?
+        .map(|servers| servers.into_keys().collect())
+        .unwrap_or_default();
     for item in collected {
         let Ok(bytes) = item.output else {
             collect_ok = false;
             continue;
         };
-        match rt.driver.offline_reader(&item.name) {
+        match rt.driver.offline_reader(&item.name, &declared) {
             Some(reader) => {
                 let Ok(read) = read_stream(&frames, &item.name, &bytes, reader) else {
                     collect_ok = false;

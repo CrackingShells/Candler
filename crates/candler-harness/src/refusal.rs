@@ -10,7 +10,7 @@ use std::error::Error;
 use crate::driver::DriverError;
 use crate::reader::ReaderError;
 use crate::spec::{CommandSpecError, InitReportError};
-use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side};
+use candler_schemas::refusal::{CatalogRow, Catalogued, Refusal, Side, pointer_of};
 use candler_schemas::refusal_table;
 
 /// The path of an error that names no place in a document.
@@ -23,8 +23,9 @@ fn driver_error_path(error: &DriverError) -> Option<String> {
     match error {
         DriverError::Command(inner) => Refusal::path(inner),
         DriverError::Unsupported { path, .. } => Some(path.clone()), // BORROW: the path owns its text
+        DriverError::InvalidValue { path, .. } => Some(pointer_of(path.segments())),
+        DriverError::AmbiguousServers { .. } => Some("/mcp/servers".to_owned()), // BORROW: .to_owned() makes the owned pointer
         DriverError::MissingValue { .. }
-        | DriverError::InvalidValue { .. }
         | DriverError::VersionOutput { .. }
         | DriverError::Record { .. } => None,
     }
@@ -42,13 +43,19 @@ refusal_table! {
         "experiment.cell_value_invalid",
         Side::Experiment,
         "A cell value cannot be used by the harness driver.",
-        "-",
+        "The field of the value, such as `/mcp/servers/fs/command`.",
     ),
     Unsupported { .. } => row(
         "experiment.setting_unsupported",
         Side::Experiment,
         "The experiment sets a setting that the harness has no way to honour, such as a turn cap for a harness with no turn limit; the run is refused rather than the setting dropped.",
         "The setting in the experiment file: a field under `/budget`, or the key of `[fixed]` that holds it, such as `/fixed/model.effort`.",
+    ),
+    AmbiguousServers { .. } => row(
+        "experiment.mcp_server_prefix_ambiguous",
+        Side::Experiment,
+        "Two MCP servers of a cell have names that make one tool name read two ways: the name of one, then `_`, is a prefix of the other's name, so a tool of the longer-named server cannot be told from a tool of the shorter-named one.",
+        "The table of servers, `/mcp/servers`.",
     ),
     VersionOutput { .. } => row(
         "harness.version_unreadable",
@@ -127,12 +134,6 @@ refusal_table! {
         "harness.inventory_empty_name",
         Side::Environment,
         "The tool inventory a harness or the gateway observed holds an empty tool name.",
-        "-",
-    ),
-    ServersNotList { .. } => row(
-        "harness.server_list_malformed",
-        Side::Environment,
-        "The MCP server list a harness observed is not a list.",
         "-",
     ),
     NoTools { .. } => row(

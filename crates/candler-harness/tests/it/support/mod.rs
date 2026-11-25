@@ -14,10 +14,10 @@ use std::time::Duration;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{
-    Action, BudgetCaps, Capabilities, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
-    FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed, ObservedEnd,
-    Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal, StopSpec,
-    Workspace,
+    Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
+    DriverFact, FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed,
+    ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal,
+    StopSpec, Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameVersion, Timestamp};
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
@@ -144,12 +144,7 @@ impl TraceReader for LinesReader {
                     && let Some(tools) = value.get("tools")
                 {
                     // BORROW: .cloned() copies the lists out of the frame
-                    self.init = InitReport::new(
-                        tools.clone(),
-                        value.get("mcp_servers").cloned(),
-                        CensusSource::Harness,
-                    )
-                    .ok();
+                    self.init = InitReport::new(tools.clone(), CensusSource::Harness).ok();
                 }
                 // BORROW: .clone() copies the frame time into the session
                 pending.started_at = at.clone();
@@ -262,14 +257,35 @@ impl HarnessDriver for LinesDriver {
             })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .budgets(BudgetCaps::new(true, true))
-            .in_harness_guard(true)
-            .census(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[AgentSetting::SessionMode];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[
+            DriverFact::GracefulStop,
+            DriverFact::LiveEvents,
+            DriverFact::InHarnessGuard,
+            DriverFact::Census,
+        ];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -310,7 +326,11 @@ impl HarnessDriver for LinesDriver {
         }))
     }
 
-    fn offline_reader(&self, _stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        _stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // TRAIT_OBJECT: the trait returns readers as objects
         Some(Box::new(LinesReader {
             pending: Vec::new(),
@@ -486,11 +506,34 @@ impl HarnessDriver for DocumentDriver {
             })
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .execution_outside_child(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[DriverFact::GracefulStop, DriverFact::ExecutionOutsideChild];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -549,7 +592,11 @@ impl HarnessDriver for DocumentDriver {
         None
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        _servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         if stream.as_str() == "export" {
             // TRAIT_OBJECT: the trait returns readers as objects
@@ -735,7 +782,7 @@ impl TraceReader for CensusReader {
         match self
             .tools
             .clone() // BORROW: .clone() copies the tools out of the reader
-            .and_then(|tools| InitReport::new(tools, None, CensusSource::Gateway).ok())
+            .and_then(|tools| InitReport::new(tools, CensusSource::Gateway).ok())
         {
             Some(init) => observed.with_init(init),
             None => observed,
@@ -790,13 +837,39 @@ impl HarnessDriver for OpenShapedDriver {
         self.0.parse_version(output)
     }
 
-    fn capabilities(&self) -> Capabilities {
-        Capabilities::builder()
-            .graceful_stop(true)
-            .live_events(true)
-            .execution_outside_child(true)
-            .census(true)
-            .build()
+    fn answer(&self, setting: AgentSetting) -> Answer {
+        let refused: &[AgentSetting] = &[
+            AgentSetting::SessionMode,
+            AgentSetting::TurnBudget,
+            AgentSetting::CostBudget,
+        ];
+        if refused.contains(&setting) {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        } else {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        }
+    }
+
+    fn fact(&self, fact: DriverFact) -> Answer {
+        let held: &[DriverFact] = &[
+            DriverFact::GracefulStop,
+            DriverFact::LiveEvents,
+            DriverFact::Census,
+            DriverFact::ExecutionOutsideChild,
+        ];
+        if held.contains(&fact) {
+            Answer::Mapped {
+                construct: "test stand-in",
+            }
+        } else {
+            Answer::Refused {
+                reason: "test stand-in",
+            }
+        }
     }
 
     fn gateway(&self) -> Option<GatewayEnv> {
@@ -883,12 +956,16 @@ impl HarnessDriver for OpenShapedDriver {
         Some(Box::new(IdsReader::new()))
     }
 
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>> {
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         match stream.as_str() {
             "model_requests" => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
             "export" => Some(Box::new(ExportReader { session: None })), // TRAIT_OBJECT: the trait returns readers as objects
-            _ => self.0.offline_reader(stream),
+            _ => self.0.offline_reader(stream, servers),
         }
     }
 

@@ -10,7 +10,7 @@ use std::time::Duration;
 use candler_harness::mcp::servers;
 use candler_harness::spec::{Cell, CommandSpec};
 use candler_schemas::primitives::RunKey;
-use serde_json::{Map, Value};
+use candler_schemas::servers::McpServer;
 
 use super::session::image_of;
 use crate::isolation::container::agent_home;
@@ -22,51 +22,8 @@ use crate::runner::plan::RunPlan;
 /// How long a server's start command is given before it must still be running.
 ///
 /// The wait catches a server that crashes as it starts: an import error, a missing file, a missing
-/// variable. It does not catch a server that starts and never answers MCP; the census of each run
-/// records which servers the harness saw.
+/// variable. It does not catch a server that starts and never answers MCP.
 pub const SERVER_START_WAIT: Duration = Duration::from_secs(3);
-
-/// One stdio server to start: its key, its command words and its literal environment.
-pub struct Stdio {
-    key: String,
-    argv: Vec<String>,
-    env: Vec<(String, String)>,
-}
-
-/// The stdio servers of `declared`; a server with a `url`, or without a `command`, is skipped.
-pub fn stdio_servers(declared: &Map<String, Value>) -> Vec<Stdio> {
-    let mut found = Vec::new();
-    for (key, server) in declared {
-        if server.get("url").is_some() {
-            continue;
-        }
-        let Some(command) = server.get("command").and_then(Value::as_str) else {
-            continue;
-        };
-        let mut argv = vec![command.to_owned()]; // BORROW: the probe owns its words
-        if let Some(args) = server.get("args").and_then(Value::as_array) {
-            argv.extend(args.iter().filter_map(Value::as_str).map(str::to_owned)); // BORROW: the probe owns its words
-        }
-        let env = server
-            .get("env")
-            .and_then(Value::as_object)
-            .map(|table| {
-                table
-                    .iter()
-                    .filter_map(|(name, value)| {
-                        value.as_str().map(|text| (name.clone(), text.to_owned())) // BORROW: the probe owns its entries
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        found.push(Stdio {
-            key: key.clone(), // BORROW: the probe owns its key
-            argv,
-            env,
-        });
-    }
-    found
-}
 
 /// Why the start check refused the job.
 #[derive(Debug, thiserror::Error)]
@@ -89,7 +46,7 @@ pub enum ServerCheckError {
 }
 
 /// The distinct pairs of image and declared servers, each with the first plan of such a cell.
-type Groups<'a> = BTreeMap<(Option<String>, String), (&'a RunPlan, Vec<Stdio>)>;
+type Groups<'a> = BTreeMap<(Option<String>, String), (&'a RunPlan, Vec<(String, McpServer)>)>;
 
 fn failed(detail: &impl ToString) -> ServerCheckError {
     ServerCheckError::ServerCheck {
@@ -119,11 +76,17 @@ pub async fn check_servers(rt: &Runtime, plans: &[RunPlan]) -> Result<(), Server
         let Some(declared) = declared else {
             continue;
         };
-        let stdio = stdio_servers(&declared);
+        let signature = (
+            image_of(comparable),
+            serde_json::to_string(&declared).map_err(|e| failed(&e))?,
+        );
+        let stdio: Vec<(String, McpServer)> = declared
+            .into_iter()
+            .filter(|(_, server)| server.command.is_some())
+            .collect();
         if stdio.is_empty() {
             continue;
         }
-        let signature = (image_of(comparable), Value::Object(declared).to_string());
         groups.entry(signature).or_insert((plan, stdio));
     }
     if groups.is_empty() {
@@ -154,7 +117,7 @@ async fn probe_group(
     rt: &Runtime,
     isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
     plan: &RunPlan,
-    stdio: &[Stdio],
+    stdio: &[(String, McpServer)],
     root: &Path,
 ) -> Result<(), ServerCheckError> {
     let cell = rt.cells.get(&plan.cell).ok_or_else(|| failed(&"no cell"))?;
@@ -179,20 +142,16 @@ async fn probe_group(
         .map_err(|e| failed(&e))?;
     // Standard input stays open, as a server's own would while the agent runs.
     container.interactive = true;
-    for server in stdio {
+    for (name, server) in stdio {
         // The server's own variables reach the server alone, as in its configuration, and never
         // the container's environment, where a gateway or plan name would be refused.
         let mut words = Vec::new();
-        if !server.env.is_empty() {
+        if let Some(env) = server.env.as_ref().filter(|env| !env.is_empty()) {
             words.push(String::from("env"));
-            words.extend(
-                server
-                    .env
-                    .iter()
-                    .map(|(name, value)| format!("{name}={value}")),
-            );
+            words.extend(env.iter().map(|(name, value)| format!("{name}={value}")));
         }
-        words.extend(server.argv.iter().cloned()); // BORROW: the command owns its words
+        words.extend(server.command.iter().cloned()); // BORROW: the command owns its words
+        words.extend(server.args.iter().flatten().cloned()); // BORROW: the command owns its words
         let mut builder = CommandSpec::builder().argv(words);
         for entry in staged
             .prepared
@@ -210,7 +169,7 @@ async fn probe_group(
             .map_err(|e| failed(&e))?;
         if let StartProbe::Exited { output } = seen {
             return Err(ServerCheckError::Server {
-                key: server.key.clone(), // BORROW: the error owns the key
+                key: name.clone(), // BORROW: the error owns the key
                 output,
             });
         }

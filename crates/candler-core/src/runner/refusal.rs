@@ -8,7 +8,6 @@
 use std::error::Error;
 
 use crate::refusal::wrapper_table;
-use crate::runner::evidence::catalog::CatalogError;
 use crate::runner::evidence::census::CensusError;
 use crate::runner::evidence::tree::EvidenceError;
 use crate::runner::exec::cell::ExecError;
@@ -24,11 +23,12 @@ fn no_path<E>(_error: &E) -> Option<String> {
 /// The pointer of the place in a document where a [`PlanError`] sits, if it names one.
 fn plan_error_path(error: &PlanError) -> Option<String> {
     match error {
-        PlanError::Cell { source } => Refusal::path(source),
+        PlanError::Cell { source } | PlanError::Replicates { source } => Refusal::path(source),
         PlanError::Session(inner) => Refusal::path(inner),
         PlanError::Egress(inner) => Refusal::path(inner),
         PlanError::Driver(inner) => Refusal::path(inner),
         PlanError::SettingAsFactor { .. } => Some(pointer_of(["factors"])),
+        PlanError::ReplicatesConflict { .. } => Some(pointer_of(["replicates"])),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
         | PlanError::Changed(..)
@@ -98,6 +98,13 @@ wrapper_table! {
         "A factor varies a setting, which no cell can vary; the setting belongs in `[fixed]`.",
         "The `factors` array of the experiment file; a verb that has read the file narrows it to the `path` of the factor.",
     ),
+    Replicates { source } => delegate(source, Side::Experiment),
+    ReplicatesConflict { .. } => row(
+        "experiment.replicates_conflict",
+        Side::Experiment,
+        "`replicates` in `[fixed]` differs from the experiment file's own `replicates`; write the count once.",
+        "The `replicates` key.",
+    ),
     Cell { source } => delegate(source, Side::Candler),
     Store { .. } => row(
         "candler.internal",
@@ -120,46 +127,6 @@ wrapper_table! {
     Driver (inner) => delegate(inner, Side::Experiment),
     Manifest (inner) => delegate(inner, Side::Candler),
     Supervise (inner) => delegate(inner, Side::Environment),
-}
-
-refusal_table! {
-    CatalogError, path = no_path;
-    Unavailable { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "Catalog capture is not wired in this build.",
-        "-",
-    ),
-    Command { .. } => row(
-        "runner.catalog_command_failed",
-        Side::Environment,
-        "The command that prints the tool catalog exited non-zero or was ended by a signal.",
-        "-",
-    ),
-    Timeout { .. } => row(
-        "runner.catalog_timeout",
-        Side::Environment,
-        "The command that prints the tool catalog overran its time.",
-        "-",
-    ),
-    Parse { .. } => row(
-        "runner.catalog_unreadable",
-        Side::Environment,
-        "The output of the catalog command is not a tool catalog.",
-        "-",
-    ),
-    AbsolutePath { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The catalog holds a path from the host or the image's file system.",
-        "-",
-    ),
-    Digest { .. } => row(
-        "candler.internal",
-        Side::Candler,
-        "The catalog has no canonical form.",
-        "-",
-    ),
 }
 
 refusal_table! {
@@ -203,10 +170,9 @@ refusal_table! {
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 5] = [
+    let tables: [&'static [CatalogRow]; 4] = [
         <PlanError as Catalogued>::rows(),
         <ExecError as Catalogued>::rows(),
-        <CatalogError as Catalogued>::rows(),
         <CensusError as Catalogued>::rows(),
         <EvidenceError as Catalogued>::rows(),
     ];
@@ -237,7 +203,9 @@ fn exec_answer(error: &ExecError) -> &dyn Refusal {
 /// code, side and path, and every other variant with its own.
 fn plan_answer(error: &PlanError) -> &dyn Refusal {
     match error {
-        PlanError::Cell { source } => crate::refusal::through(source, error),
+        PlanError::Cell { source } | PlanError::Replicates { source } => {
+            crate::refusal::through(source, error)
+        }
         PlanError::Driver(inner) => crate::refusal::through(inner, error),
         PlanError::NameCollision { .. }
         | PlanError::ExperimentLocked
@@ -246,6 +214,7 @@ fn plan_answer(error: &PlanError) -> &dyn Refusal {
         | PlanError::StoredCellAmbiguous { .. }
         | PlanError::AttemptOverflow { .. }
         | PlanError::SettingAsFactor { .. }
+        | PlanError::ReplicatesConflict { .. }
         | PlanError::Session(..)
         | PlanError::Egress(..)
         | PlanError::Store { .. }
@@ -265,14 +234,9 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
                 .map(exec_answer)
                 .or_else(|| {
                     error
-                        .downcast_ref::<CatalogError>()
+                        .downcast_ref::<CensusError>()
                         .map(as_refusal)
-                        .or_else(|| {
-                            error
-                                .downcast_ref::<CensusError>()
-                                .map(as_refusal)
-                                .or_else(|| error.downcast_ref::<EvidenceError>().map(as_refusal))
-                        })
+                        .or_else(|| error.downcast_ref::<EvidenceError>().map(as_refusal))
                 })
         })
 }

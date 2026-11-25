@@ -169,8 +169,8 @@ pub(crate) fn parse(frame: &RawFrame) -> Parsed {
     }
 }
 
-/// The inventory an init line lists: its `tools` and, when it has them, its `mcp_servers`, as the
-/// line gives them. A line that is not an init line, or lists no tool names, gives none.
+/// The inventory an init line lists: its `tools`, as the line gives them. A line that is not an
+/// init line, or lists no tool names, gives none.
 fn init_report(line: &Map<String, Value>) -> Option<InitReport> {
     let is_init = line.get("type").and_then(Value::as_str) == Some("system")
         && line.get("subtype").and_then(Value::as_str) == Some("init");
@@ -180,8 +180,6 @@ fn init_report(line: &Map<String, Value>) -> Option<InitReport> {
     let tools = line.get("tools")?;
     InitReport::new(
         tools.clone(), // BORROW: .clone() copies the list out of the line
-        // BORROW: .cloned() copies the list out of the line
-        line.get("mcp_servers").filter(|v| v.is_array()).cloned(),
         CensusSource::Harness,
     )
     .ok()
@@ -389,9 +387,9 @@ fn origin_of(name: &str) -> ToolOrigin {
         .strip_prefix("mcp__")
         .and_then(|rest| rest.split_once("__"))
     {
-        // BORROW: .to_owned() makes the owned server name the origin keeps
+        // BORROW: .to_owned() makes the owned server and tool names the origin keeps
         Some((server, tool)) if !server.is_empty() && !tool.is_empty() => {
-            ToolOrigin::mcp(server.to_owned())
+            ToolOrigin::mcp_tool(server.to_owned(), tool.to_owned())
         }
         Some(_) | None => ToolOrigin::Builtin,
     }

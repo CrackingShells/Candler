@@ -10,14 +10,14 @@
 use std::fmt;
 
 use candler_schemas::raw::{FrameData, RawFrame, RawRef, StreamName};
-use candler_schemas::trace::{EndedBy, Session, SessionId};
+use candler_schemas::trace::{EndedBy, EventKind, Session, SessionId, ToolOrigin};
 
-use crate::driver::{Disposition, DriverError, HarnessDriver, Plan};
+use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
-    Action, Cell, CensusSource, CollectSpec, CommandSpec, EnvValue, FileRoot, Framing, HttpMethod,
-    InitReport, Observed, ObservedEnd, PendingState, ProcessExit, SessionClose, SessionRecord,
-    StateKind, StopSpec, Workspace,
+    Action, AgentSetting, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvValue,
+    FileRoot, Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
+    ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
 };
 
 /// A session id plain enough to stand in a script, used to check that a placeholder resolves.
@@ -117,12 +117,24 @@ pub struct Case {
     pub end: Option<(ProcessExit, EndedBy)>,
     /// What the driver must collect for the observed sessions, when the case states it.
     pub collect: Option<Vec<CollectSpec>>,
+    /// The command and exec specs the driver must collect, whatever file specs it also has.
+    pub collect_commands: Option<Vec<CollectSpec>>,
     /// An export read after the live stream: the stream it is read as, its bytes and the sessions
     /// it must give. The export is authoritative: the run is classified from its sessions, with
     /// the live reader's observed end beside them.
     pub export: Option<(StreamName, Vec<u8>, Vec<ExpectedSession>)>,
+    /// The files the scripted agent writes into a real workspace. When the case states them, the
+    /// check collects that workspace through the setup's collector and asserts that the stored
+    /// set is exactly these files. The oracle is this set, not a list taken from the driver.
+    pub agent_wrote: Vec<PreparedFile>,
+    /// The files the harness leaves in the same workspace, which are not the agent's: the
+    /// collect must not store them.
+    pub harness_wrote: Vec<PreparedFile>,
     /// Records for the session tracker, in the order the core reads them.
     pub track: Vec<TrackStep>,
+    /// The MCP servers the run declared, and the origin that the stream's one tool call must
+    /// have in the events the reader emits: the stream is read for that server list.
+    pub mcp_call: Option<(Vec<String>, ToolOrigin)>,
 }
 
 impl Case {
@@ -146,9 +158,21 @@ impl Case {
             observed_end: None,
             end: None,
             collect: None,
+            collect_commands: None,
             export: None,
+            agent_wrote: Vec::new(),
+            harness_wrote: Vec::new(),
             track: Vec::new(),
+            mcp_call: None,
         }
+    }
+
+    /// The stream holds one call to a tool of the servers `servers`, and the reader must give it
+    /// the origin `origin`.
+    #[must_use]
+    pub fn with_mcp_call(mut self, servers: Vec<String>, origin: ToolOrigin) -> Self {
+        self.mcp_call = Some((servers, origin));
+        self
     }
 
     /// The sessions the reader must finish with, and the ids it must have observed.
@@ -210,6 +234,22 @@ impl Case {
         self
     }
 
+    /// The files the scripted agent writes and the files the harness leaves beside them; the
+    /// check asserts the driver's `collect` stores the first and not the second.
+    #[must_use]
+    pub fn with_workspace(mut self, agent: Vec<PreparedFile>, harness: Vec<PreparedFile>) -> Self {
+        self.agent_wrote = agent;
+        self.harness_wrote = harness;
+        self
+    }
+
+    /// The commands the driver must collect; its file specs are checked by the workspace oracle.
+    #[must_use]
+    pub fn with_collect_commands(mut self, commands: Vec<CollectSpec>) -> Self {
+        self.collect_commands = Some(commands);
+        self
+    }
+
     /// What the driver must collect.
     #[must_use]
     pub fn with_collect(mut self, collect: Vec<CollectSpec>) -> Self {
@@ -236,7 +276,14 @@ pub struct Setup<'a> {
     /// Texts that must appear in no argument, no literal variable and no prepared file: the
     /// values of the secrets the core holds.
     pub canaries: &'a [String],
+    /// What a run stores of a workspace: the file specs applied to the tree, as the paths kept.
+    /// The driver crates' tests give the core's file collector here, applied to the driver's
+    /// specs.
+    pub collector: Option<Collector>,
 }
+
+/// The paths a collector stores from the tree under a root for a driver's file specs.
+pub type Collector = fn(&std::path::Path, &[CollectSpec]) -> std::io::Result<Vec<String>>;
 
 impl<'a> Setup<'a> {
     /// A setup.
@@ -250,7 +297,15 @@ impl<'a> Setup<'a> {
             cell,
             workspace,
             canaries,
+            collector: None,
         }
+    }
+
+    /// The same setup with the collector the workspace oracle runs.
+    #[must_use]
+    pub const fn with_collector(mut self, collector: Collector) -> Self {
+        self.collector = Some(collector);
+        self
     }
 }
 
@@ -606,31 +661,24 @@ fn check_names(driver: &dyn HarnessDriver) -> Result<(), Failure> {
     Ok(())
 }
 
-/// Checks the settings table: no two rows name the same setting and value, a refused row says
-/// why, and a mapped row says what it writes.
-fn check_settings_table(
+/// Checks the answers: every key has one, and an answer says what it writes, what Candler does or
+/// why it is refused.
+fn check_answers(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
 ) -> Result<(), Failure> {
-    let rows = driver.settings_table();
-    for (index, row) in rows.iter().enumerate() {
-        if rows
-            .iter()
-            .skip(index.saturating_add(1))
-            .any(|other| other.setting == row.setting && other.value == row.value)
-        {
+    let words = AgentSetting::ALL
+        .into_iter()
+        .map(|setting| (format!("{setting:?}"), driver.answer(setting)))
+        .chain(
+            DriverFact::ALL
+                .into_iter()
+                .map(|fact| (format!("{fact:?}"), driver.fact(fact))),
+        );
+    for (key, answer) in words {
+        if answer.text().is_empty() {
             return Err(driver_failure(
-                "settings_table",
-                format!("two rows name {} {}", row.setting, row.value),
-            ));
-        }
-        let (empty, what) = match row.disposition {
-            Disposition::Mapped => (row.construct.is_empty(), "names no construct"),
-            Disposition::Refused => (row.detail.is_empty(), "gives no reason"),
-        };
-        if empty {
-            return Err(driver_failure(
-                "settings_table",
-                format!("the row {} {} {what}", row.setting, row.value),
+                "answers",
+                format!("the answer to {key} has no words"),
             ));
         }
     }
@@ -645,21 +693,21 @@ fn check_capabilities(
     cases: &[Case],
     owned: &[String],
 ) -> Result<(), Failure> {
-    let caps = driver.capabilities();
+    let session = !driver.answer(AgentSetting::SessionMode).is_refused();
     let spec = &plan.session;
-    if caps.session && spec.is_none() {
+    if session && spec.is_none() {
         return Err(driver_failure(
             "session",
             "the session capability is declared and the driver returns no session spec".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if caps.session && driver.session_tracker().is_none() {
+    if session && driver.session_tracker().is_none() {
         return Err(driver_failure(
             "session",
             "the session capability is declared and the driver returns no tracker".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if !caps.session && spec.is_some() {
+    if !session && spec.is_some() {
         return Err(driver_failure(
             "session",
             "the driver returns a session spec without the session capability".to_owned(), // BORROW: .to_owned() makes the owned text
@@ -700,7 +748,7 @@ fn check_capabilities(
             }
         }
     }
-    if caps.census {
+    if !driver.fact(DriverFact::Census).is_refused() {
         let from_stream = driver.census_stream().is_some();
         let from_init = cases.iter().any(|case| case.init.is_some());
         if !from_stream && !from_init {
@@ -716,7 +764,9 @@ fn check_capabilities(
             "the case expects an inventory and the census capability is off".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
-    if caps.execution_outside_child && driver.stop().pre_stop.is_none() {
+    if !driver.fact(DriverFact::ExecutionOutsideChild).is_refused()
+        && driver.stop().pre_stop.is_none()
+    {
         return Err(driver_failure(
             "stop",
             "execution lives outside the child and the stop has no pre-stop".to_owned(), // BORROW: .to_owned() makes the owned text
@@ -833,6 +883,13 @@ fn frames(framing: Framing, stream: &StreamName, bytes: &[u8]) -> Vec<(RawRef, R
         .collect()
 }
 
+/// The MCP servers the case's run declared.
+fn declared(case: &Case) -> &[String] {
+    case.mcp_call
+        .as_ref()
+        .map_or(&[][..], |(servers, _)| servers.as_slice())
+}
+
 /// The reader of a case, or the failure that the driver has none.
 fn reader_of(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -841,7 +898,7 @@ fn reader_of(
     // TRAIT_OBJECT: the driver's reader is chosen at runtime
     let reader = match &case.reader {
         ReaderSource::Live => driver.live_reader(),
-        ReaderSource::Offline(stream) => driver.offline_reader(stream),
+        ReaderSource::Offline(stream) => driver.offline_reader(stream, declared(case)),
     };
     reader.ok_or_else(|| {
         case_failure(
@@ -947,7 +1004,7 @@ fn read_export(
     stream: &StreamName,
     bytes: &[u8],
 ) -> Result<Vec<Session>, Failure> {
-    let Some(mut reader) = driver.offline_reader(stream) else {
+    let Some(mut reader) = driver.offline_reader(stream, &[]) else {
         return Err(case_failure(
             case,
             "export",
@@ -991,6 +1048,72 @@ fn check_collect(
     Ok(())
 }
 
+/// Checks a case's oracle: the scripted agent writes `agent_wrote`, and the harness leaves
+/// `harness_wrote`, into a real workspace; the setup's collector runs the driver's file specs over
+/// that workspace as a run does, and the stored set must equal the files the agent wrote. A file
+/// the agent wrote that is not stored is named as missing, and a file stored that the agent did
+/// not write is named as extra. The way each harness collects files does not depend on the
+/// sessions a stream named, so the check runs `collect` with no observed session and reads only
+/// its file specs.
+fn check_collect_oracle(
+    driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
+    setup: &Setup<'_>,
+    case: &Case,
+) -> Result<(), Failure> {
+    if case.agent_wrote.is_empty() {
+        return Ok(());
+    }
+    let Some(collector) = setup.collector else {
+        return Err(case_failure(
+            case,
+            "collect",
+            "the case names files the agent wrote and the setup has no collector".to_owned(), // BORROW: .to_owned() makes the owned text
+        ));
+    };
+    let fail = |detail: String| case_failure(case, "collect", detail);
+    let root = std::env::temp_dir().join(format!(
+        "candler-conformance-{}-{}",
+        std::process::id(),
+        case.name
+    ));
+    let stored = {
+        let written = write_workspace(&root, case).map_err(|error| fail(error.to_string())); // BORROW: .to_string() gives owned text
+        let specs = driver.collect(&Workspace::new(&root), &Observed::new(Vec::new()));
+        let stored = written.and_then(|()| {
+            collector(&root, &specs).map_err(|error| fail(error.to_string())) // BORROW: .to_string() gives owned text
+        });
+        // Best effort: a leftover scratch directory is the only cost of a failed removal.
+        let _ = std::fs::remove_dir_all(&root);
+        stored?
+    };
+    let wrote: Vec<String> = case
+        .agent_wrote
+        .iter()
+        .map(|file| file.path.to_string()) // BORROW: .to_string() makes owned text
+        .collect();
+    let missing: Vec<&String> = wrote.iter().filter(|path| !stored.contains(path)).collect();
+    let extra: Vec<&String> = stored.iter().filter(|path| !wrote.contains(path)).collect();
+    if missing.is_empty() && extra.is_empty() {
+        return Ok(());
+    }
+    Err(fail(format!(
+        "the collect does not store exactly the files the agent wrote: missing {missing:?}, extra {extra:?}"
+    )))
+}
+
+/// Writes the files the agent wrote and the files the harness left into `root`.
+fn write_workspace(root: &std::path::Path, case: &Case) -> std::io::Result<()> {
+    std::fs::create_dir_all(root)?;
+    for file in case.agent_wrote.iter().chain(&case.harness_wrote) {
+        let path = root.join(file.path.as_str()); // BORROW: explicit .as_str()
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&path, &file.contents)?;
+    }
+    Ok(())
+}
+
 /// Runs one case.
 fn check_case(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
@@ -1011,11 +1134,35 @@ fn check_case(
             "the reader does not recognise the start of the recorded stream".to_owned(), // BORROW: .to_owned() makes the owned text
         ));
     }
+    let mut events = Vec::new();
     for (raw_ref, frame) in frames(reader.framing(), &case.stream, &case.bytes) {
         let frame_in = FrameIn::new(raw_ref, None, &frame);
-        reader
-            .feed(frame_in)
-            .map_err(|error| case_failure(case, "feed", error.to_string()))?; // BORROW: .to_string() gives owned text
+        events.extend(
+            reader
+                .feed(frame_in)
+                .map_err(|error| case_failure(case, "feed", error.to_string()))?, // BORROW: .to_string() gives owned text
+        );
+    }
+    if let Some((_, want)) = &case.mcp_call {
+        let got: Vec<&ToolOrigin> = events
+            .iter()
+            .filter_map(|entry| {
+                if let EventKind::ToolCall { origin, .. } = &entry.event.kind {
+                    Some(origin)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if got != [want] {
+            return Err(case_failure(
+                case,
+                "origin",
+                format!(
+                    "expected the one call to have the origin {want:?}, the reader gave {got:?}"
+                ),
+            ));
+        }
     }
     let observed: Observed = reader.observed();
     if observed.session_ids != case.observed_ids {
@@ -1058,7 +1205,22 @@ fn check_case(
             ));
         }
     }
+    if let Some(want) = &case.collect_commands {
+        let got: Vec<CollectSpec> = driver
+            .collect(setup.workspace, &observed)
+            .into_iter()
+            .filter(|spec| !matches!(spec, CollectSpec::File { .. }))
+            .collect();
+        if &got != want {
+            return Err(case_failure(
+                case,
+                "collect",
+                format!("expected commands {want:?}, the driver collects {got:?}"),
+            ));
+        }
+    }
     check_collect(driver, setup, &observed, owned)?;
+    check_collect_oracle(driver, setup, case)?;
     let mut sessions = match &case.sessions {
         Some(expected) => {
             let sessions = reader
@@ -1132,7 +1294,7 @@ fn check_track(
 /// Returns the first [`Failure`]: a capability that the driver's specs do not back, a gateway or
 /// state name that is invalid, a command that carries a secret or sets a name the core owns, a
 /// stop that cannot work, or a case whose reader, inventory, sessions, end or tracked state is
-/// not what the case records.
+/// not what the case records, or whose collect does not keep the files the agent wrote.
 pub fn run(
     driver: &dyn HarnessDriver, // TRAIT_OBJECT: the suite checks any driver
     setup: &Setup<'_>,
@@ -1140,7 +1302,7 @@ pub fn run(
 ) -> Result<(), Failure> {
     let owned = owned_names(driver);
     check_names(driver)?;
-    check_settings_table(driver)?;
+    check_answers(driver)?;
     let plan = driven("plan", driver.plan(setup.cell, setup.workspace))?;
     check_capabilities(driver, &plan, setup, cases, &owned)?;
     check_builds(driver, &plan, setup, &owned)?;

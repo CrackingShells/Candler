@@ -12,9 +12,9 @@ use candler_schemas::trace::{EndedBy, Session};
 use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
-    BaseImage, Capabilities, Cell, CollectSpec, CommandSpec, CommandSpecError, GatewayEnv,
-    HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec,
-    Workspace,
+    AgentSetting, Answer, BaseImage, Cell, CollectSpec, CommandSpec, CommandSpecError, DriverFact,
+    GatewayEnv, HarnessId, Observed, Prepared, ProcessExit, SessionSpec, SessionTracker, StatePath,
+    StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -35,15 +35,22 @@ pub enum DriverError {
         /// What is wrong with it.
         detail: String,
     },
+    /// Two MCP servers whose names make a tool name read two ways: `<first>_` begins the name of
+    /// `second`.
+    #[error("servers `{first}` and `{second}` are ambiguous: a tool name that begins `{first}_{rest}` could belong to either", rest = second.strip_prefix(format!("{first}_").as_str()).unwrap_or_default())]
+    AmbiguousServers {
+        /// The shorter name.
+        first: String,
+        /// The longer name, which begins with the shorter one and `_`.
+        second: String,
+    },
     /// A setting the harness has no way to honour, refused rather than dropped.
-    #[error("{harness} {version} cannot honour {path}: {detail}")]
+    #[error("{harness} cannot honour {path}: {detail}")]
     Unsupported {
         /// The pointer into the experiment file of the setting.
         path: String,
         /// The harness's name, as its users write it.
         harness: String,
-        /// The harness version the driver was validated against.
-        version: semver::Version,
         /// Why the harness cannot honour it, and what it accepts instead.
         detail: String,
     },
@@ -65,18 +72,12 @@ pub enum DriverError {
 }
 
 impl DriverError {
-    /// The refusal of `setting`, which the harness `harness` at `version` cannot honour for the
-    /// reason `detail`.
+    /// The refusal of `setting`, which the harness `harness` cannot honour for the reason `detail`.
     ///
     /// The pointer is the setting's place in the experiment file: a `budget` field sits under
     /// `/budget`, and any other setting is a key of `[fixed]`, written as its dotted path.
     #[must_use]
-    pub fn unsupported(
-        setting: &FieldPath,
-        harness: &str,
-        version: &semver::Version,
-        detail: &str,
-    ) -> Self {
+    pub fn unsupported(setting: &FieldPath, harness: &str, detail: &str) -> Self {
         let text = setting.to_string(); // BORROW: .to_string() gives owned text
         let path = if setting.segments().next() == Some("budget") {
             pointer_of(setting.segments())
@@ -86,66 +87,7 @@ impl DriverError {
         Self::Unsupported {
             path,
             harness: harness.to_owned(), // BORROW: .to_owned() makes the owned text
-            version: version.clone(),    // BORROW: .clone() copies the version
             detail: detail.to_owned(),   // BORROW: .to_owned() makes the owned text
-        }
-    }
-}
-
-/// Whether a driver honours one cell setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Disposition {
-    /// The harness has a construct with the setting's meaning, and the driver writes it.
-    Mapped,
-    /// The harness has no construct with the setting's meaning; the driver refuses the setting
-    /// with [`DriverError::Unsupported`].
-    Refused,
-}
-
-/// One row of a driver's settings table: a cell setting (or one value or name of it), whether the
-/// driver honours it, and in either case the harness construct or the reason, in a few words.
-///
-/// The table is data a capability page can read; the driver builds its command and its files from
-/// the same rows, so a row and what the driver does cannot differ.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub struct SettingRow {
-    /// The cell path, such as `permission_mode` or `tools.allowed`.
-    pub setting: String,
-    /// The value or name the row is about (`bypassPermissions`, `Bash`, `high`), or `*` when the
-    /// row covers the whole setting.
-    pub value: String,
-    /// Whether the driver honours the setting.
-    pub disposition: Disposition,
-    /// The harness construct a mapped row writes (empty for a refused row).
-    pub construct: String,
-    /// How a mapped row maps, or why a refused row is refused.
-    pub detail: String,
-}
-
-impl SettingRow {
-    /// A row the driver honours, writing `construct`.
-    #[must_use]
-    pub fn mapped(setting: &str, value: &str, construct: &str, detail: &str) -> Self {
-        Self {
-            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
-            disposition: Disposition::Mapped,
-            construct: construct.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            detail: detail.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-        }
-    }
-
-    /// A row the driver refuses, for `why`.
-    #[must_use]
-    pub fn refused(setting: &str, value: &str, why: &str) -> Self {
-        Self {
-            setting: setting.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
-            value: value.to_owned(),     // BORROW: .to_owned() makes the owned text the row keeps
-            disposition: Disposition::Refused,
-            construct: String::new(),
-            detail: why.to_owned(), // BORROW: .to_owned() makes the owned text the row keeps
         }
     }
 }
@@ -201,8 +143,13 @@ pub trait HarnessDriver: Send + Sync {
     /// Returns [`DriverError::VersionOutput`] if `output` names no version.
     fn parse_version(&self, output: &[u8]) -> Result<semver::Version, DriverError>;
 
-    /// What the harness can do.
-    fn capabilities(&self) -> Capabilities;
+    /// How the driver meets `setting`: what the harness does for it, what Candler does in its
+    /// place, or why nobody does. Every key has an answer; there is no default.
+    fn answer(&self, setting: AgentSetting) -> Answer;
+
+    /// What the driver does on its own, as `fact` asks. Every key has an answer; there is no
+    /// default.
+    fn fact(&self, fact: DriverFact) -> Answer;
 
     /// What the driver does for `cell` in `workspace`: the files and the environment it adds
     /// before the launch, the headless command, and the session, if the harness runs one. The core
@@ -214,16 +161,6 @@ pub trait HarnessDriver: Send + Sync {
     /// Returns [`DriverError::Unsupported`] for a setting the harness cannot honour.
     /// Returns [`DriverError::Command`] if a command cannot be built.
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError>;
-
-    /// The settings table: one row per cell setting, value or name the driver knows, mapped or
-    /// refused. A driver that declares nothing keeps the default, an empty table, and answers
-    /// each setting in [`HarnessDriver::plan`].
-    ///
-    /// No two rows name the same `(setting, value)`, a refused row says why, and a mapped row
-    /// says what it writes.
-    fn settings_table(&self) -> Vec<SettingRow> {
-        Vec::new()
-    }
 
     /// Refuses a cell that sets something the driver cannot honour, with the error
     /// [`HarnessDriver::plan`] gives for it, so the core can refuse the cell before any job
@@ -300,8 +237,14 @@ pub trait HarnessDriver: Send + Sync {
     fn live_reader(&self) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
 
     /// The reader of a stream the core collected after the run, such as an export, or `None` if
-    /// the driver reads no such stream.
-    fn offline_reader(&self, stream: &StreamName) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
+    /// the driver reads no such stream. `servers` are the names of the MCP servers the run's cell
+    /// declared, which a harness that spells a call `<server>_<tool>` needs to tell a server's tool
+    /// from another one; a stream read with no cell (an ingested trace) is given none.
+    fn offline_reader(
+        &self,
+        stream: &StreamName,
+        servers: &[String],
+    ) -> Option<Box<dyn TraceReader>>; // TRAIT_OBJECT: the core selects drivers and readers at runtime
 
     /// How the run ended, read from the exit and the parsed sessions rather than from the exit
     /// status alone: an exit 0 with an error result is an agent error. A run the experimenter

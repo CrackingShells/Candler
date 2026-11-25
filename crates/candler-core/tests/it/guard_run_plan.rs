@@ -903,16 +903,16 @@ fn t3_one_level_plans_the_old_bytes() {
         .iter()
         .map(|plan| (plan.cell.to_string(), plan.key.replicate()))
         .collect();
-    let m1 = "sha256:c8c025d07f891ace920b103b2dd93ae78cdbe49fbf4269085554aa79d72dfab2";
-    let m2 = "sha256:528ad7c2a0587eda8c5fbeee1760c89687f211a181a125f7dfc74b7be074c13a";
-    let expected: Vec<(String, u32)> = [(m1, 1), (m2, 1), (m1, 2), (m2, 2)]
+    let m1 = "sha256:f935f4852108458ddbd26c7be1f5b38d9ae390e47b2b2330052bd92b049c43ec";
+    let m2 = "sha256:94d7583eabfaa4cd6116ed137aacbea7c81de62a87e951e0b3d58104c0f34aa8";
+    let expected: Vec<(String, u32)> = [(m1, 1), (m2, 1), (m2, 2), (m1, 2)]
         .into_iter()
         .map(|(cell, replicate)| (cell.to_owned(), replicate))
         .collect();
     assert_eq!(
         (out.experiment.to_string(), planned),
         (
-            "sha256:2a0b3bf188be1e42e471095c7973dfaa390f5d0288cbb6733f15ac6ce4e670e7".to_owned(),
+            "sha256:a0d95d80aa505e22bdeb3a8c5123b0ddb0d85bc6fa000f016b8e053399a1cf06".to_owned(),
             expected
         )
     );

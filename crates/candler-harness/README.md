@@ -11,7 +11,7 @@ HTTP call a driver describes. The traits are specified in
 
 | Module | Holds |
 |---|---|
-| `spec` | The data a driver returns: `CommandSpec` (built with `CommandSpecBuilder`), `EnvEntry` and `EnvValue`, `StopSpec` with `Action`, `StopSignal` and `HttpMethod`, `CollectSpec`, `Capabilities` with `BudgetCaps`, `ProcessExit` and `ProcessEnd`, `Observed`, `Framing`, `FormatVersion`, `Confidence`, `HarnessId`, `Prepared` and `PreparedFile`, and the read-only views `Cell` and `Workspace`. |
+| `spec` | The data a driver returns: `CommandSpec` (built with `CommandSpecBuilder`), `EnvEntry` and `EnvValue`, `StopSpec` with `Action`, `StopSignal` and `HttpMethod`, `CollectSpec`, `Answer`, `AgentSetting` with `EffortLevel` and `PermissionMode`, `DriverFact`, `ProcessExit` and `ProcessEnd`, `Observed`, `Framing`, `FormatVersion`, `Confidence`, `HarnessId`, `Prepared` and `PreparedFile`, and the read-only views `Cell` and `Workspace`. |
 | `driver` | `HarnessDriver`, the trait that says how to prepare, launch, observe, stop and collect one harness, and `DriverError`. |
 | `reader` | `TraceReader`, the trait that turns the frames of one stream into normalised sessions and events, its input `FrameIn` and its error `ReaderError`. A reader is synchronous and holds no clock; the core supplies each frame with its place and wall time. |
 
