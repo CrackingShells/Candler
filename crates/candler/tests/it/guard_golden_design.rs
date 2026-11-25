@@ -147,6 +147,7 @@ fn gd_plan_twelve_cells() {
         store,
         experiment_lock: dir.path().join("experiments").join("x").join("lock"),
         secrets_present: BTreeSet::new(),
+        input_targets: Vec::new(),
         driver: None,
     };
     let out = plan_runs(

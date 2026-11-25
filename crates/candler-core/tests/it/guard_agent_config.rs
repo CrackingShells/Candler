@@ -13,7 +13,7 @@ use candler_core::resolve::config::{Config, UserConfig};
 use candler_core::resolve::layers::{FileValues, ResolveInput};
 use candler_core::resolve::preflight::Resolver;
 use candler_core::runner::plan::{Force, PlanCtx, PlanError, PlanMode, plan_runs};
-use candler_harness::driver::HarnessDriver;
+use candler_harness::driver::{DriverError, HarnessDriver};
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::execution::ExperimentFile;
@@ -34,11 +34,13 @@ fn experiment_with(factors: &str) -> ExperimentFile {
 }
 
 /// The digests of the cells `file` plans over the resolution of `fixed`, on `driver` when there
-/// is one, with both shipped harnesses registered.
+/// is one, with both shipped harnesses registered, while the inputs mount the `mounted` files, each
+/// with its input's kind.
 async fn planned(
     file: &ExperimentFile,
     fixed: &[(&str, Value)],
     driver: Option<Arc<dyn HarnessDriver>>,
+    mounted: &[(&str, &str)],
 ) -> Result<BTreeSet<Digest>, PlanError> {
     let mut all = vec![
         (
@@ -77,6 +79,10 @@ async fn planned(
         store,
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
+        input_targets: mounted
+            .iter()
+            .map(|(path, kind)| ((*path).to_owned(), (*kind).to_owned()))
+            .collect(),
         driver,
     };
     let outcome = plan_runs(&ctx, file, &resolution, Force::No, PlanMode::Check)?;
@@ -103,12 +109,16 @@ async fn two_levels_of_instructions_or_hooks_plan_two_cells() {
         let two = experiment_with(&format!(
             "[[factors]]\npath = \"{path}\"\nlevels = [{first}, {second}]\n"
         ));
-        let cells = planned(&two, &[], None).await.expect("two levels plan");
+        let cells = planned(&two, &[], None, &[])
+            .await
+            .expect("two levels plan");
         assert_eq!(cells.len(), 2, "{path}: two levels, two digests");
         let one = experiment_with(&format!(
             "[[factors]]\npath = \"{path}\"\nlevels = [{first}]\n"
         ));
-        let single = planned(&one, &[], None).await.expect("one level plans");
+        let single = planned(&one, &[], None, &[])
+            .await
+            .expect("one level plans");
         assert_eq!(single.len(), 1, "{path}: one level, one digest");
         assert!(single.is_subset(&cells), "{path}: a level keeps its digest");
     }
@@ -192,7 +202,7 @@ async fn misused_hooks_and_instructions_are_refused_by_name() {
         pointer,
     } in cases
     {
-        match planned(&file, &[fixed], Some(driver)).await {
+        match planned(&file, &[fixed], Some(driver), &[]).await {
             Err(error) => {
                 assert_eq!(Refusal::code(&error).as_str(), code, "{name}");
                 assert_eq!(Refusal::path(&error).as_deref(), pointer, "{name}");
@@ -200,4 +210,43 @@ async fn misused_hooks_and_instructions_are_refused_by_name() {
             Ok(_) => panic!("{name}: planned"),
         }
     }
+}
+
+/// Guards: planning refuses a cell that sets `instructions.workspace` while an input mounts a file
+/// at the harness's workspace instruction file, or a path under it, naming the input, whatever the
+/// case or a leading `./` of the path; an input elsewhere, and a cell that sets no text, are not
+/// refused. The refusal is the planner's, so every caller of it meets it.
+/// Oracle: the input kind `rules` and the paths written by hand; the file `CLAUDE.md` the Claude
+/// Code harness reads.
+/// Bite: leave the check out of planning, or compare the paths exactly.
+#[tokio::test]
+async fn planning_refuses_an_input_at_the_workspace_instruction_file() {
+    let file = experiment_with("");
+    let claude: Arc<dyn HarnessDriver> = Arc::new(ClaudeCodeDriver::new());
+    let text = [("instructions.workspace", json!("be brief"))];
+    for path in [
+        "CLAUDE.md",
+        "claude.md",
+        "./CLAUDE.md",
+        "Claude.MD/notes.md",
+    ] {
+        let refused = planned(&file, &text, Some(Arc::clone(&claude)), &[(path, "rules")])
+            .await
+            .expect_err(path);
+        assert!(
+            matches!(
+                &refused,
+                PlanError::Driver(DriverError::InstructionsCollide { input, .. }) if input == "rules"
+            ),
+            "{path}: {refused:?}"
+        );
+    }
+    for path in ["docs/CLAUDE.md", "CLAUDE.mdx"] {
+        planned(&file, &text, Some(Arc::clone(&claude)), &[(path, "rules")])
+            .await
+            .expect(path);
+    }
+    planned(&file, &[], Some(claude), &[("CLAUDE.md", "rules")])
+        .await
+        .expect("no text, no collision");
 }

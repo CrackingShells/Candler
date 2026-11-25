@@ -295,6 +295,7 @@ async fn planned(
         store,
         experiment_lock: lock,
         secrets_present: BTreeSet::new(),
+        input_targets: Vec::new(),
         driver: Some(if capable {
             Arc::new(ClaudeCodeDriver::new())
         } else {

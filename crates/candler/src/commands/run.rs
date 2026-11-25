@@ -34,8 +34,7 @@ use candler_core::resolve::layers::{FileValues, Layered, Resolution, ResolveInpu
 use candler_core::resolve::steps::ground_truth::GroundTruth;
 use candler_core::resolve::steps::plugin_environment::Fragment;
 use candler_core::runner::plan::{
-    Force, PlanCtx, PlanMode, experiment_of, plan_runs, refuse_instruction_collision,
-    treatment_levels,
+    Force, PlanCtx, PlanMode, experiment_of, plan_runs, treatment_levels,
 };
 use candler_core::store::Store;
 use candler_harness::driver::HarnessDriver;
@@ -273,12 +272,11 @@ fn plan_job(
         experiment_lock: store.layout().experiment_lock(&experiment),
         secrets_present: EnvSecrets::new(file.secrets()).present(),
         driver: Some(Arc::clone(driver)), // BORROW: the context shares the driver the collision check reads
+        input_targets: declared.targets.clone(), // BORROW: the context owns the paths the inputs mount
     };
     let mode = if force { Force::Yes } else { Force::No };
     let outcome = plan_runs(&ctx, file, levels.as_slice(), mode, PlanMode::Check) // BORROW: explicit .as_slice()
         .map_err(|e| refuse_plan(e, file))?;
-    refuse_instruction_collision(driver.as_ref(), outcome.fresh.values(), &declared.targets)
-        .map_err(CliError::refused_by)?;
     if levels.len() < 2 {
         levels.clear();
     }

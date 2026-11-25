@@ -17,7 +17,6 @@ use candler_core::isolation::ExecOutput;
 use candler_core::isolation::container::mounts::{MountMode, MountSpec};
 use candler_core::jobs::model::{JobOutcome, JobSpec};
 use candler_core::jobs::orchestrate::session::JobHost;
-use candler_core::runner::plan::refuse_instruction_collision;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
@@ -25,12 +24,10 @@ use candler_harness::spec::{
     EnvValue, HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec,
     Workspace,
 };
-use candler_schemas::execution::Comparable;
 use candler_schemas::primitives::RelPath;
 use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::StreamName;
 use candler_schemas::trace::{EndedBy, Session};
-use candler_schemas::values::{JsonValue, ResolvedValue};
 use serde_json::{Value, json};
 use support::job_orchestrate::{Probed, QuietDriver, Rig, run_to_end, spec};
 use support::run_plan::Facts;
@@ -536,47 +533,4 @@ fn workspace_file_is_mounted_read_only_and_is_no_output() {
         manifest["integrity"]["reason"], "input_leak",
         "the file is no input leak: {manifest}"
     );
-}
-
-/// A text as a resolved value's content.
-fn json_value(text: &str) -> JsonValue {
-    JsonValue::new(json!(text)).expect("a value")
-}
-
-/// A cell of the fixture's resolution, with the workspace instruction text when `text` is set.
-fn cell_with(text: Option<&str>) -> Comparable {
-    let mut values = support::run_plan::resolution(&facts()).values;
-    if let Some(text) = text {
-        values.push(ResolvedValue::recorded(
-            "instructions.workspace".parse().expect("a path"),
-            json_value(text),
-        ));
-    }
-    Comparable::from_resolved(&values).expect("a cell")
-}
-
-/// Guards: an input declared at the harness's workspace instruction file is refused for a cell
-/// that sets the workspace instruction text, naming the input; the same input is no collision for
-/// a cell that sets none, and an input elsewhere is none for a cell that does.
-/// Oracle: the input kind `rules` and the file `AGENTS.md` written by hand.
-/// Bite: compare the path with the text's file by prefix only, or skip the cell's text.
-#[test]
-fn input_at_the_instruction_file_collides_with_the_workspace_text() {
-    let driver = Checking::new(false);
-    let at_file = [(String::from("AGENTS.md"), String::from("rules"))];
-    let elsewhere = [(String::from("docs/AGENTS.md"), String::from("rules"))];
-    let text = cell_with(Some("be brief"));
-    let none = cell_with(None);
-
-    let refused =
-        refuse_instruction_collision(&driver, [&text], &at_file).expect_err("a collision");
-    assert!(
-        matches!(
-            &refused,
-            DriverError::InstructionsCollide { input, file, .. } if input == "rules" && file == "AGENTS.md"
-        ),
-        "{refused:?}"
-    );
-    assert!(refuse_instruction_collision(&driver, [&none], &at_file).is_ok());
-    assert!(refuse_instruction_collision(&driver, [&text], &elsewhere).is_ok());
 }

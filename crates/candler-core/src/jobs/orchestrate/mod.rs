@@ -124,6 +124,13 @@ async fn run_job(
         experiment_lock: rt.store.layout().experiment_lock(&fresh),
         secrets_present: secrets.present(),
         driver: Some(Arc::clone(&rt.driver)),
+        // The spec keeps the files the inputs mount, not the names of the inputs, so a refusal
+        // quotes the path.
+        input_targets: spec
+            .inputs
+            .iter()
+            .map(|input| (input.path.clone(), input.path.clone())) // BORROW: the context owns its texts
+            .collect(),
     };
     let force = if spec.force { Force::Yes } else { Force::No };
     let outcome = match plan_runs(
