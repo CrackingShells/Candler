@@ -24,3 +24,59 @@ tool_use_id = "toolu_01X5u9fEqbbE81797As5G5so"
 reason = "permission-rule"
 by = "harness"
 session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+
+# Exit of each listed result, from jq over the raw lines (the rule: Bash only; "Exit code N" leads the content -> N;
+# a result moved to the background or any other error text -> no code; a non-error result -> 0). `code` absent means no exit.
+# Rows cover every distinct shape of a result in the stream, and every nonzero exit.
+[[exits]]
+tool_use_id = "toolu_013DzQNP5eghtZzg2B3yVjBD"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Agent"
+
+[[exits]]
+tool_use_id = "toolu_01UD7QWiFcsquMvnCjYbpEcw"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_01DkRDrfN5Ko7P4Qj4xvSFcV"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Bash"
+code = 1
+
+[[exits]]
+tool_use_id = "toolu_01X5u9fEqbbE81797As5G5so"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Bash"
+
+[[exits]]
+tool_use_id = "toolu_0196kqWT5QrYkYYY4MoBSFdg"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Edit"
+
+[[exits]]
+tool_use_id = "toolu_01VjVDWurs4LmdJFy9hb1BkL"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Read"
+
+[[exits]]
+tool_use_id = "toolu_01Nps2fAwbu3SMArPmUXMENK"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Skill"
+
+[[exits]]
+tool_use_id = "toolu_01EoHQvHQ8KvCyGUrU7Xbivm"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b"
+tool = "Write"
+
+[[exits]]
+tool_use_id = "toolu_013JezHaK1JMDqGYDvRSBCxt"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b/toolu_013DzQNP5eghtZzg2B3yVjBD"
+tool = "Bash"
+code = 0
+
+[[exits]]
+tool_use_id = "toolu_01Suta5jdXAbr5fR8t6KwHRS"
+session = "c4795c86-ed65-45c8-9b21-e095d2025a1b/toolu_013DzQNP5eghtZzg2B3yVjBD"
+tool = "Read"

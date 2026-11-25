@@ -55,10 +55,10 @@ pub const PINNED: semver::Version = semver::Version::new(2, 1, 311);
 const HARNESS: &str = "claude-code";
 
 /// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
-pub const READER: &str = "claude-code-stream-json@0.2.0";
+pub const READER: &str = "claude-code-stream-json@0.3.0";
 
 /// The version of [`READER`].
-const READER_VERSION: semver::Version = semver::Version::new(0, 2, 0);
+const READER_VERSION: semver::Version = semver::Version::new(0, 3, 0);
 
 /// A frame that arrived before any session was known.
 struct Held {

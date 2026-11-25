@@ -3,6 +3,7 @@
 use candler_harness::spec::{CensusSource, InitReport};
 use candler_schemas::outcome::Finite;
 use candler_schemas::primitives::Timestamp;
+use candler_schemas::process::ExitStatus;
 use candler_schemas::raw::{FrameData, RawFrame};
 use candler_schemas::trace::{Denial, DeniedBy, EndedBy, EventKind, SpanId, ToolOrigin};
 use serde_json::{Map, Value};
@@ -315,8 +316,13 @@ fn block_draft(role: Role, block: &Value, line: &Map<String, Value>) -> Draft {
                     .get("is_error")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let mut draft =
-                    Draft::new(EventKind::tool_result(is_error, denial_of(line, id), None));
+                let denied = denial_of(line, id);
+                let exit = if denied.is_some() {
+                    None
+                } else {
+                    exit_of(block, line, is_error)
+                };
+                let mut draft = Draft::new(EventKind::tool_result(is_error, denied, exit));
                 draft.span = span_of(id, &mut draft.ext);
                 draft
             }
@@ -338,6 +344,44 @@ fn denial_of(line: &Map<String, Value>, id: &str) -> Option<Denial> {
         .map(|kind| Denial::new(DeniedBy::Harness, Some(kind.to_owned())))
 }
 
+/// The exit a result reports.
+///
+/// A result with a `backgroundTaskId` or `timedOutAfterMs` in the line's `tool_use_result`, or with `interrupted` true,
+/// has none. Of the others, an error result whose first text line is `Exit code N` has code `N` and any other error
+/// text has none; a non-error result with none of those flags reads as exit 0.
+fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<ExitStatus> {
+    let report = line.get("tool_use_result").and_then(Value::as_object);
+    let flagged = |key: &str| report.is_some_and(|report| report.contains_key(key));
+    let interrupted = report
+        .and_then(|report| report.get("interrupted"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if flagged("backgroundTaskId") || flagged("timedOutAfterMs") || interrupted {
+        return None;
+    }
+    if !is_error {
+        return Some(ExitStatus::Code { code: 0 });
+    }
+    let content = block.get("content")?;
+    let first = match content {
+        Value::String(text) => Some(text.as_str()),
+        Value::Array(parts) => parts
+            .iter()
+            .find(|part| part.get("type").and_then(Value::as_str) == Some("text"))
+            .and_then(|part| part.get("text"))
+            .and_then(Value::as_str),
+        Value::Null | Value::Bool(_) | Value::Number(_) | Value::Object(_) => None,
+    }?;
+    let digits = first.lines().next()?.strip_prefix("Exit code ")?;
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    digits
+        .parse::<i32>()
+        .ok()
+        .map(|code| ExitStatus::Code { code })
+}
+
 /// A notification that keeps a content block this reader has no event for.
 fn unknown_block(block: &Value) -> Draft {
     // BORROW: .clone() keeps the whole block in the event
@@ -356,9 +400,12 @@ fn span_of(id: &str, ext: &mut Map<String, Value>) -> Option<SpanId> {
     )
 }
 
+/// The name of the shell tool, the only one whose result reports an exit.
+pub(crate) const SHELL_TOOL: &str = "Bash";
+
 /// The call of the tool `name` with the id `id`.
 fn tool_call(id: &str, name: &str, input: Option<&Value>) -> Draft {
-    let argv = (name == "Bash")
+    let argv = (name == SHELL_TOOL)
         .then(|| {
             input
                 .and_then(|input| input.get("command"))

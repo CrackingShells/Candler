@@ -39,3 +39,10 @@ ended_by = "unknown"
 [[frame_sessions]]
 frame = 8
 session = "22222222-2222-4222-8222-222222222222/toolu_m_n1/toolu_m_n2"
+
+# A hand-built line cannot say what Claude Code writes for an exit, so only an absence is listed:
+# an MCP tool's error result carries no exit.
+[[exits]]
+tool_use_id = "toolu_m_ls"
+session = "22222222-2222-4222-8222-222222222222"
+tool = "mcp__plugin_banyan_banyan-hpc__fs_ls"
