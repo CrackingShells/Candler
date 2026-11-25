@@ -280,8 +280,8 @@ fn an_outcome_notification_refuses_the_legacy_cause() {
     );
     object_not_list::<ContextRaw>(
         "ContextRaw",
-        r#"{"stream":"stdout","path":"/p"}"#,
-        r#"["stdout","/p"]"#,
+        &format!(r#"{{"stream":"stdout","path":"/p","sha256":"{digest}"}}"#),
+        &format!(r#"["stdout","/p","{digest}"]"#),
     );
     object_not_list::<ContextArtifact>(
         "ContextArtifact",
