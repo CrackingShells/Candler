@@ -754,6 +754,7 @@ async fn drive(
                 if rt.driver.census_from_gateway() {
                     gateway_init = census_init(&bytes);
                 }
+                loaded.extend(rt.driver.loaded_instructions(&name, &bytes));
                 context =
                     census_context(&bytes).map(|(frame, kind)| (RawRef::new(name, frame), kind));
                 extra.push(file);
