@@ -235,10 +235,10 @@
       "oneOf": [
         {
           "additionalProperties": false,
-          "description": "What the model was given at the start of the run: the system text and the first message of the run's first model request, as the gateway received them.",
+          "description": "What the model was given at the start of the run: the system text and the first user message of the run's first model request that carries tools, as the gateway received them: the text blocks of each, joined by a newline, with other blocks dropped.",
           "properties": {
             "first_message": {
-              "description": "The first message of the request, verbatim.",
+              "description": "The first user message of the request.",
               "type": "string"
             },
             "kind": {
@@ -246,7 +246,7 @@
               "type": "string"
             },
             "system": {
-              "description": "The system text of the request, verbatim.",
+              "description": "The system text of the request.",
               "type": "string"
             }
           },

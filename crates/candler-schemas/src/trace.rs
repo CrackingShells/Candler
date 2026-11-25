@@ -754,13 +754,14 @@ pub enum UsageScope {
 #[derive(Debug, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum EventKind {
-    /// What the model was given at the start of the run: the system text and the first message of
-    /// the run's first model request, as the gateway received them.
+    /// What the model was given at the start of the run: the system text and the first user
+    /// message of the run's first model request that carries tools, as the gateway received them:
+    /// the text blocks of each, joined by a newline, with other blocks dropped.
     #[non_exhaustive]
     ContextStart {
-        /// The system text of the request, verbatim.
+        /// The system text of the request.
         system: String,
-        /// The first message of the request, verbatim.
+        /// The first user message of the request.
         first_message: String,
     },
     /// The user said something.
@@ -931,11 +932,11 @@ impl EventKind {
 #[serde(remote = "EventKind", tag = "kind", rename_all = "snake_case")]
 #[schemars(deny_unknown_fields, rename = "EventKind")]
 enum KnownKind {
-    /// What the model was given at the start of the run: the system text and the first message of the run's first model request, as the gateway received them.
+    /// What the model was given at the start of the run: the system text and the first user message of the run's first model request that carries tools, as the gateway received them: the text blocks of each, joined by a newline, with other blocks dropped.
     ContextStart {
-        /// The system text of the request, verbatim.
+        /// The system text of the request.
         system: String,
-        /// The first message of the request, verbatim.
+        /// The first user message of the request.
         first_message: String,
     },
     /// The user said something.
