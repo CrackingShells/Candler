@@ -8,6 +8,7 @@
 **Success Gates**:
 - ⬜ `tests/test_guard_context.py`, over hand-written wire contexts, shows `RunContext.from_wire` keeping `trace`, `raw` (with `sha256`) and `manifest`, each `None` or empty when absent. On the base `manifest` is dropped and `trace` is read as a bare path. Bite: `manifest` dropped by `from_wire`
 - ⬜ A trace reader in the helper yields typed events from `context.trace`, and the same test file shows it reading hand-written lines with `exit`, `origin: {kind: mcp, server, tool}` and `argv`, and refusing a line with an unknown field. Bite: a model that accepts unknown fields
+- ⬜ The generated `Needs.raw` and `Needs.manifest` are typed `bool | None`, while the schema and the Rust reader refuse `null` (§Wire encodings, "Absent vs null"). A describe result the helper writes never carries `"raw": null` or `"manifest": null`, guarded over the helper's own writer with the shared wire vectors as oracle. Bite: the writer emits `null` for an unset need
 - ⬜ `scripts/gen_models.py` generates the trace models from `normalised-trace.schema.json` deterministically, and CI's regeneration check passes
 - ⬜ `docs/contract/evaluator-helper.md` lists the new fields and the reader, within its Notes limit and with stamps; `pyproject.toml`'s version is bumped by hand to the next minor, as CONTRIBUTING.md §Evaluator helper line says, and no tag is cut
 - `uv run pytest`, `uv run ruff check`, `uv run ruff format --check` and `uv run --frozen python scripts/gen_models.py` with no diff, all from `python/candler-evaluator`
