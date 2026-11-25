@@ -272,3 +272,33 @@ path = "streams/shell_exit_stderr_timeout/usage_totals.toml"
 source = "usage_totals.jq"
 sha256 = "df78975da8a46ba3ac67f3a6d64767bd0569846e0b65ac690177c79de9e68a0e"
 synthetic = false
+
+# shell_exit_semantics (cc_exit_semantics probe, 2026-11-25): real Claude Code 2.1.311 on the same rig
+# as shell_exit_stderr_timeout above (the parity rig of crates/candler/tests/it/guard_cli_e2e/parity_e2e.rs,
+# the production gateway sidecar, bypassPermissions, one cell), the same agent image
+# (sha256:57f339fc3580d09e8f0c9284d2177449c476f31e8bcd092dcdc631c3b3ea2a48). Docker 29.9.2,
+# Docker Desktop on macOS. No token was spent. The fake model is the committed
+# assets/docker/fakemodel/fakemodel.py, model id g1, with FAKE_G1_COMMANDS the JSON list
+# ["echo hello | grep zzz", "printf a > a.txt; printf b > b.txt; diff a.txt b.txt", "test -f /missing",
+# "echo fine"]: one Bash call per request in turn, then ToolSearch and the MCP call stamp of the server
+# parity. The first three commands exit 1 and Claude Code reports them as is_error false with a
+# returnCodeInterpretation; the fourth is the control that exits 0. The stream is the harness's stdout,
+# each raw frame's text as one line (tests/fixtures/README.md, "Record a stream again").
+
+[[files]]
+path = "streams/shell_exit_semantics/agent_stream.jsonl.gz"
+source = "real Claude Code 2.1.311 stream-json, cc_exit_semantics probe, 2026-11-25"
+sha256 = "c4629520621a368f565cfccbbef35f91e4404df9ef81627ea4839eb8de06bd7c"
+synthetic = false
+
+[[files]]
+path = "streams/shell_exit_semantics/expected.toml"
+source = "hand-written from jq over the raw lines"
+sha256 = "2d2ca554fdf87d7ddb8992771aefef8d21b47838c0848362f9f3d12dc26260b3"
+synthetic = false
+
+[[files]]
+path = "streams/shell_exit_semantics/usage_totals.toml"
+source = "usage_totals.jq"
+sha256 = "f0df57b7284368d8d2141b2a76911e9eb38351f903d47efeeeeb360016eb5ea1"
+synthetic = false

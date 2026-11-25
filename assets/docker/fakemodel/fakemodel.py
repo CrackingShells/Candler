@@ -8,7 +8,7 @@ Environment:
     FAKE_PORT    the TLS port (default 8443).
     FAKE_DIR     where the certificates and the records go (default /tmp/fake).
     FAKE_OUT_TOKENS  output tokens each answer reports (default 20).
-    FAKE_G1_COMMANDS  a JSON list of two shell commands, the script of model g1 (default: none).
+    FAKE_G1_COMMANDS  a JSON list of two or more shell commands, the script of model g1 (default: none).
     FAKE_DELAY_SECS  how long the answer to a c3 request is held, after it is recorded (default 0,
                  at most 120).
 
@@ -34,8 +34,8 @@ The script is chosen by the model id of a /v1/messages request:
         Anything else is answered with text.
     g1  must run what it is told. A first user prompt is answered with a call to the shell tool
         (`Bash`, or `shell` for OpenCode) for the first command of FAKE_G1_COMMANDS, the result of
-        that with the second command, and the result of that with the call to the stamp tool, as
-        for p1. Anything else is answered with text.
+        each with the next command, and the result of the last with the call to the stamp tool,
+        as for p1. Anything else is answered with text.
     c3  must be slow. Every request is answered "hello" after FAKE_DELAY_SECS seconds, so that a
         run is live and its agent is mid-turn for that long.
 
@@ -132,22 +132,23 @@ SHELL_TOOLS = ("Bash", "shell")
 
 
 def graded_blocks(state, tools, messages):
-    """The answer of model g1: two shell commands, then the stamp call, then text."""
+    """The answer of model g1: each shell command in turn, then the stamp call, then text."""
     commands = json.loads(os.environ.get("FAKE_G1_COMMANDS", "[]"))
     shell = next((name for name in tools if name in SHELL_TOOLS), None)
     last = last_tool_result(messages) if state == "tool_result" else None
-    steps = ("toolu_fake_g1_0", "toolu_fake_g1_1")
+    steps = [f"toolu_fake_g1_{index}" for index in range(len(commands))]
 
     def shell_call(index):
         return {"type": "tool_use", "id": steps[index], "name": shell,
                 "input": {"command": commands[index]}}
 
-    if shell and len(commands) == 2:
+    if shell and len(commands) >= 2:
         if state == "prompt":
             return [shell_call(0)], "tool_use", "g1-shell-0"
-        if last == steps[0]:
-            return [shell_call(1)], "tool_use", "g1-shell-1"
-        if last == steps[1]:
+        if last in steps[:-1]:
+            following = steps.index(last) + 1
+            return [shell_call(following)], "tool_use", f"g1-shell-{following}"
+        if last == steps[-1]:
             offered = [name for name in tools if name in PARITY_TOOLS]
             if offered:
                 return [stamp_call(offered[0])], "tool_use", "g1-call"

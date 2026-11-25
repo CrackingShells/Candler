@@ -344,11 +344,15 @@ fn denial_of(line: &Map<String, Value>, id: &str) -> Option<Denial> {
         .map(|kind| Denial::new(DeniedBy::Harness, Some(kind.to_owned())))
 }
 
-/// The exit a result reports.
+/// The exit a result states, as read from the result alone; the call's tool is not known here, so
+/// `Registry::emit` keeps it only for a `Bash` call.
 ///
 /// A result with a `backgroundTaskId` or `timedOutAfterMs` in the line's `tool_use_result`, or with `interrupted` true,
-/// has none. Of the others, an error result whose first text line is `Exit code N` has code `N` and any other error
-/// text has none; a non-error result with none of those flags reads as exit 0.
+/// states none. So does a non-error result whose `tool_use_result` has a `returnCodeInterpretation`: Claude Code writes
+/// that text, and `is_error: false`, for a command that exited nonzero and that it does not count as a failure (`grep`
+/// with no match, `diff` of two different files, a false `test`), and no field gives the code. Of the others, an error
+/// result whose first text line is `Exit code N` has code `N` and any other error text has none; a non-error result
+/// has code 0.
 fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<ExitStatus> {
     let report = line.get("tool_use_result").and_then(Value::as_object);
     let flagged = |key: &str| report.is_some_and(|report| report.contains_key(key));
@@ -360,7 +364,11 @@ fn exit_of(block: &Value, line: &Map<String, Value>, is_error: bool) -> Option<E
         return None;
     }
     if !is_error {
-        return Some(ExitStatus::Code { code: 0 });
+        return if flagged("returnCodeInterpretation") {
+            None
+        } else {
+            Some(ExitStatus::Code { code: 0 })
+        };
     }
     let content = block.get("content")?;
     let first = match content {

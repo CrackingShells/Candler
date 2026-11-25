@@ -22,6 +22,11 @@ and how each session ended) and `usage` (token counts and their sums) are privat
 - Session roots and subagent children, each with its own event numbering.
 - Tool calls and results. A result the harness refused carries a denial whose reason is the
   `non_execution_kind` of the line's `tool_result_meta`.
+- The exit of a `Bash` result, as the harness stated it and never inferred: `Exit code N` leading an
+  error result gives code `N`; a non-error result gives code 0, unless its `tool_use_result` carries a
+  `returnCodeInterpretation` (a nonzero exit such as `grep` with no match, which Claude Code does not
+  flag and gives no code for), a `backgroundTaskId`, a `timedOutAfterMs` or `interrupted: true`, which
+  give none. A result of any other tool has no exit.
 - Usage per message and, from the result line, per session with its cost.
 - Content blocks it has no event for, kept whole in a notification.
 - A stream with no init line, or with frames before any session, ends in `ReaderError::Incomplete`.
