@@ -22,7 +22,7 @@ An evaluator plug-in that declares `needs.trace`, `needs.raw` or `needs.manifest
 ```mermaid
 graph TD
     schema_exit_needs[Schema: exit and needs]:::inprogress
-    probe_shell_shapes[Probe: shell shapes]:::inprogress
+    probe_shell_shapes[Probe: shell shapes]:::done
     readers[Readers and serving]:::planned
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
@@ -35,7 +35,7 @@ graph TD
 | Node | Type | Status |
 |:-----|:-----|:-------|
 | `schema_exit_needs.md` | 📄 Leaf Task | 🔄 In Progress |
-| `probe_shell_shapes.md` | 📄 Leaf Task | 🔄 In Progress |
+| `probe_shell_shapes.md` | 📄 Leaf Task | ✅ Done |
 | `readers/` | 📁 Directory | ⬜ Planned |
 
 ## Amendment Log
