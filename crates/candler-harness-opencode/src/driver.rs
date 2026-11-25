@@ -254,7 +254,7 @@ impl HarnessDriver for OpenCodeDriver {
     }
 
     fn census_stream(&self) -> Option<StreamName> {
-        census_stream()
+        GATEWAY_STREAM.parse().ok()
     }
 
     fn offline_reader(
@@ -335,11 +335,6 @@ fn ambiguous_prefixes(names: &[String]) -> Result<(), DriverError> {
         }
     }
     Ok(())
-}
-
-/// The stream the gateway's census is stored as.
-fn census_stream() -> Option<StreamName> {
-    GATEWAY_STREAM.parse().ok()
 }
 
 /// The placeholder the core fills with the root session id.

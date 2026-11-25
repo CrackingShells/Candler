@@ -17,7 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use candler_schemas::execution::{Comparable, EventPayload, JobRecord, JobState, SecretPresence};
-use candler_schemas::primitives::{Digest, RunKey};
+use candler_schemas::primitives::{Digest, JobId, RunKey};
 use candler_schemas::values::SourceEntry;
 use futures::future::BoxFuture;
 use serde::{Deserialize, Serialize};
@@ -619,7 +619,10 @@ impl DockerControlRunner {
         ));
         let scripted = Scripted {
             script: control.name(),
-            idle_s: Some(control.idle_s()),
+            settings: vec![
+                ("runner.idle_s", json!(control.idle_s())),
+                ("runner.mode", json!("session")),
+            ],
         };
         let mut world = World { work, fake: None };
         let outcome = self
@@ -700,7 +703,7 @@ impl DockerControlRunner {
         let image = fake_image(&*docker, &self.contexts.fakemodel, &digest).await?;
         let token = format!("candler-control-{}-{}", std::process::id(), nanos());
         let started = docker
-            .capture(fake_spec(&image, &token).args(), CALL)
+            .capture(fake_spec(&image, &token, &job).args(), CALL)
             .await
             .map_err(|e| err("starting the fake model", &e))?;
         let fake = String::from_utf8_lossy(&started).trim().to_owned(); // BORROW: the world keeps the container id
@@ -856,7 +859,7 @@ async fn authority(
 /// is on docker's default network so that the egress network can be joined once the gateway has
 /// made it.
 #[must_use]
-pub fn fake_spec(image: &str, token: &str) -> ControlSpec {
+pub fn fake_spec(image: &str, token: &str, job: &JobId) -> ControlSpec {
     let limits = HardLimits {
         pids_limit: 64,
         memory: String::from("256m"),
@@ -867,6 +870,7 @@ pub fn fake_spec(image: &str, token: &str) -> ControlSpec {
     ControlSpec::new(image, limits)
         .network(ControlNetwork::Default)
         .detached()
+        .for_job(job)
         .entrypoint("timeout")
         .env(vec![
             format!("FAKE_TOKEN={token}"),
@@ -883,22 +887,21 @@ pub fn fake_spec(image: &str, token: &str) -> ControlSpec {
 }
 
 /// What the fake model plays for a run, and how the run is driven.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct Scripted<'a> {
     /// The fake model's script, which is the model id of the cell.
     pub script: &'a str,
-    /// The seconds after which a session closes; none runs a single prompt.
-    pub idle_s: Option<u64>,
+    /// The settings the cell holds besides the common ones, such as the session mode.
+    pub settings: Vec<(&'static str, Value)>,
 }
 
-/// The cell of a run of `scripted` and its plan: over the base image with the harness `harness`,
-/// a session when the script has an `idle_s`, a single prompt otherwise.
+/// The cell of a run of `scripted` and its plan: over the base image with the harness `harness`.
 fn control_cell(
     identity: &Identity,
     harness: &Value,
     scripted: &Scripted<'_>,
 ) -> Result<(CellRun, RunPlan), String> {
-    let (script, idle_s) = (scripted.script, scripted.idle_s);
+    let script = scripted.script;
     let mut values: Vec<(&str, Value)> = vec![
         ("budget.per_run.wall_s", json!(WALL_S)),
         ("isolation.image", json!(identity.base_id)),
@@ -906,10 +909,7 @@ fn control_cell(
         ("permission_mode", json!("bypassPermissions")),
         ("prompt.template", json!("go")),
     ];
-    if let Some(idle_s) = idle_s {
-        values.push(("runner.idle_s", json!(idle_s)));
-        values.push(("runner.mode", json!("session")));
-    }
+    values.extend(scripted.settings.iter().cloned());
     let entries: Vec<Value> = values
         .iter()
         .map(|(path, value)| json!({"path": path, "value": value}))

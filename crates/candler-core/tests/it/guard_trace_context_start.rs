@@ -15,7 +15,7 @@ use candler_harness_opencode::driver::OpenCodeDriver;
 use candler_schemas::primitives::RunKey;
 use candler_schemas::raw::FrameData;
 use candler_schemas::trace::{EventKind, TraceFile};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::guard_container_e2e::controls_e2e_runs::ControlWorld;
 use crate::support::wiring::{Scenario, run};
@@ -48,7 +48,7 @@ struct Stored {
 async fn stored_trace(
     driver: Arc<dyn HarnessDriver>, // TRAIT_OBJECT: the driver is chosen at run time
     base_dir: &str,
-    session: bool,
+    settings: Vec<(&'static str, Value)>,
 ) -> Stored {
     let world = ControlWorld::new(driver, base_dir).await;
     let identity = world
@@ -66,7 +66,7 @@ async fn stored_trace(
             &world.harness(),
             &Scripted {
                 script: "c2",
-                idle_s: session.then_some(2),
+                settings,
             },
             watch,
             work.clone(),
@@ -176,8 +176,16 @@ fn check(harness: &str, stored: &Stored) -> Vec<String> {
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "needs Docker; run with --run-ignored only"]
 async fn trace_context_first_event_is_the_first_request_with_tools_on_both_harnesses() {
-    let claude = stored_trace(Arc::new(ClaudeCodeDriver::new()), "base", true).await;
-    let opencode = stored_trace(Arc::new(OpenCodeDriver::new()), "base-opencode", false).await;
+    let claude = stored_trace(
+        Arc::new(ClaudeCodeDriver::new()),
+        "base",
+        vec![
+            ("runner.idle_s", json!(2)),
+            ("runner.mode", json!("session")),
+        ],
+    )
+    .await;
+    let opencode = stored_trace(Arc::new(OpenCodeDriver::new()), "base-opencode", Vec::new()).await;
     let mut problems = check("claude-code", &claude);
     problems.extend(check("opencode", &opencode));
     assert!(problems.is_empty(), "{problems:#?}");

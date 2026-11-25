@@ -4,14 +4,16 @@
 //!
 //! A [`ControlSpec`] is every control container's flags in one place: it removes itself, wears the
 //! label `candler.role=control` and no job label (so no sweep meets it and the guard never
-//! destroys it), carries [`hardening`] over the limits its kind needs, and has a network chosen by
+//! destroys it; a control that runs for a job names it in `candler.control_job`), carries [`hardening`] over the limits its kind needs, and has a network chosen by
 //! its kind. [`outcome`] is the one reading of how it ended.
 
 use candler_schemas::process::ExitStatus;
 
 use super::docker::DockerError;
 use super::hardening::{HardLimits, Role, hardening};
-use super::layout::LABEL_ROLE;
+use candler_schemas::primitives::JobId;
+
+use super::layout::{LABEL_CONTROL_JOB, LABEL_ROLE};
 use crate::supervise::stop::{Captured, Ended};
 
 /// The exit code of coreutils `timeout` when the command it runs overran.
@@ -42,6 +44,7 @@ pub struct ControlSpec {
     detach: bool,
     user: Option<(u32, u32)>,
     workdir: Option<String>,
+    job: Option<String>,
     entrypoint: Option<String>,
     env: Vec<String>,
     mounts: Vec<String>,
@@ -59,6 +62,7 @@ impl ControlSpec {
             detach: false,
             user: None,
             workdir: None,
+            job: None,
             entrypoint: None,
             env: Vec::new(),
             mounts: Vec::new(),
@@ -84,6 +88,13 @@ impl ControlSpec {
     #[must_use]
     pub const fn user(mut self, uid: u32, gid: u32) -> Self {
         self.user = Some((uid, gid));
+        self
+    }
+
+    /// The same container, labelled with the job it runs for in [`LABEL_CONTROL_JOB`].
+    #[must_use]
+    pub fn for_job(mut self, job: &JobId) -> Self {
+        self.job = Some(job.to_string());
         self
     }
 
@@ -149,6 +160,12 @@ impl ControlSpec {
             String::from("--label"),
             format!("{LABEL_ROLE}={}", Role::Control.label()),
         ]);
+        if let Some(job) = &self.job {
+            args.extend([
+                String::from("--label"),
+                format!("{LABEL_CONTROL_JOB}={job}"),
+            ]);
+        }
         if let Some(program) = &self.entrypoint {
             args.extend([String::from("--entrypoint"), program.clone()]); // BORROW: the argv owns its text
         }

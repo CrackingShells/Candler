@@ -215,7 +215,9 @@ pub trait JobHost: Send + Sync {
 }
 
 /// The host of a real job: the `docker` on `PATH` and a [`DockerGateway`] from the sidecar image
-/// docker holds under the tag of the gateway's build context, when the host knows that context.
+/// docker holds under the tag of the gateway's build context. Only a host made by
+/// [`DockerHost::with_controls`] knows that context; any other refuses a job that needs a gateway
+/// with `sidecar_image_missing`.
 #[derive(Debug, Clone)]
 pub struct DockerHost {
     controls: Result<ControlContexts, String>,
@@ -240,7 +242,8 @@ impl DockerHost {
         }
     }
 
-    /// The host that cannot run session controls, for the reason `why`.
+    /// The host that cannot run session controls, for the reason `why`. It knows no gateway build
+    /// context either, so it refuses every job that needs a gateway.
     #[must_use]
     pub fn without_controls(why: &str) -> Self {
         Self {
@@ -248,13 +251,6 @@ impl DockerHost {
             sidecar: None,
             upstream_ca: None,
         }
-    }
-
-    /// The host whose gateway runs from the sidecar image docker holds under `tag`.
-    #[must_use]
-    pub fn with_sidecar(mut self, tag: String) -> Self {
-        self.sidecar = Some(tag);
-        self
     }
 
     /// The host whose gateway trusts the certificates of the PEM `ca` for the model upstream, in

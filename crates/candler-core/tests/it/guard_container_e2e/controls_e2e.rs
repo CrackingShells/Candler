@@ -218,12 +218,14 @@ impl ControlWorld {
         if self.base_made {
             docker(&["image", "rm", &self.base.id.0]).must("removing the agent base image");
         }
-        let job_label = format!("label=candler.job={}", self.rig.job);
-        assert_eq!(
-            listed(&["ps", "-aq", "--filter", &job_label]),
-            Vec::<String>::new(),
-            "no container of the job is left behind"
-        );
+        for key in ["candler.job", "candler.control_job"] {
+            let label = format!("label={key}={}", self.rig.job);
+            assert_eq!(
+                listed(&["ps", "-aq", "--filter", &label]),
+                Vec::<String>::new(),
+                "no container of the job is left behind ({key})"
+            );
+        }
     }
 }
 
