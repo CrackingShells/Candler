@@ -1043,7 +1043,7 @@ fn check_collect(
                 }
             }
             CollectSpec::Exec { spec, .. } => check_command("collect", spec, setup, owned)?,
-            CollectSpec::File { .. } => {}
+            CollectSpec::File { .. } | CollectSpec::Home { .. } => {}
         }
     }
     Ok(())

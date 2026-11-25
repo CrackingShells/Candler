@@ -181,6 +181,29 @@ pub async fn collect_commands(
     found
 }
 
+/// Reads each file of `home` the driver's collect specs name, in order, and returns what each
+/// holds under its stream name. A file the run never wrote leaves nothing; one that cannot be read
+/// is that spec's own failed result.
+#[must_use]
+pub fn collect_home(home: &Path, specs: &[CollectSpec]) -> Vec<Collected> {
+    let mut found = Vec::new();
+    for spec in specs {
+        if let CollectSpec::Home { path, name, .. } = spec {
+            match fs::read(home.join(path.as_str())) {
+                // BORROW: explicit .as_str()
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                read => found.push(Collected {
+                    name: name.clone(), // BORROW: the result owns the stream name
+                    output: read.map_err(|error| IsolationError::Plan {
+                        detail: format!("cannot read {path} of the agent's home: {error}"),
+                    }),
+                }),
+            }
+        }
+    }
+    found
+}
+
 /// A stream stored as a raw file and read by a reader.
 #[non_exhaustive]
 pub struct StreamRead {

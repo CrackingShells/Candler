@@ -59,7 +59,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | execution outside the child | no (tools run in the child process) | tools run in the `serve` child, which the stop interrupts first |
 | census source | Claude Code's `system/init` event lists the tools | Candler: the tools the gateway offered the model in its first request |
 | permission mode when none is set | `--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it | Candler: the run is under `--auto` and the baseline ruleset {*, *, allow}, so every tool is allowed: OpenCode has no headless ask mode |
-| config check | no (this driver installs no configuration file to check) | no (this driver installs no configuration file to check) |
+| config check | `claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry | no (this driver installs no configuration file to check) |
 <!-- /generated:fields -->
 
 ## Refusals

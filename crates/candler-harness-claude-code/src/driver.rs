@@ -11,8 +11,8 @@ use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     AgentSetting, Answer, BaseImage, CLAUDE_CODE, Cell, CheckVerdict, CollectSpec, CommandSpec,
-    DriverFact, EffortLevel, GatewayEnv, HarnessId, InstructionScope, Observed, PermissionMode,
-    Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
+    DriverFact, EffortLevel, GatewayEnv, HarnessId, InstructionScope, LoadedFile, Observed,
+    PermissionMode, Prepared, ProcessExit, SessionTracker, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::execution::paths;
 use candler_schemas::name;
@@ -317,8 +317,8 @@ impl HarnessDriver for ClaudeCodeDriver {
             DriverFact::Census => Answer::Mapped {
                 construct: "Claude Code's `system/init` event lists the tools",
             },
-            DriverFact::ConfigCheck => Answer::Refused {
-                reason: "this driver installs no configuration file to check",
+            DriverFact::ConfigCheck => Answer::Mapped {
+                construct: "`claude doctor` in the workspace, whose `Invalid settings` section lists a rejected file or a skipped entry",
             },
             DriverFact::UnsetPermissionMode => Answer::Mapped {
                 construct: "`--permission-mode default` on the command line, which in a headless run denies every tool call that needs approval unless an allow rule or a hook approves it",
@@ -328,12 +328,31 @@ impl HarnessDriver for ClaudeCodeDriver {
 
     fn config_check(&self, plan: &Plan) -> Option<CommandSpec> {
         let _ = plan;
-        None
+        // The exit status is 0 whatever it finds, and four install-method warnings always print:
+        // only the `Invalid settings` section says something of the files.
+        Some(CommandSpec::new(
+            PROGRAM.to_owned(),
+            vec!["doctor".to_owned()],
+        )) // BORROW: .to_owned() makes the owned arguments
     }
 
     fn read_config_check(&self, output: &[u8]) -> CheckVerdict {
-        let _ = output;
-        CheckVerdict::Clean
+        let text = String::from_utf8_lossy(output);
+        let mut section = text
+            .lines()
+            .skip_while(|line| !line.contains("Invalid settings"))
+            .take_while(|line| !line.trim().is_empty())
+            .peekable();
+        if section.peek().is_none() {
+            return CheckVerdict::Clean;
+        }
+        CheckVerdict::Rejected {
+            output: section.collect::<Vec<_>>().join("\n"),
+        }
+    }
+
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        session::loaded(stream, bytes)
     }
 
     fn workspace_instruction_file(&self) -> &'static str {
@@ -436,6 +455,7 @@ impl HarnessDriver for ClaudeCodeDriver {
                 .into_iter()
                 .map(|pattern| CollectSpec::file(format!("!{pattern}"))),
         );
+        specs.extend(session::log_collect().ok());
         specs
     }
 }

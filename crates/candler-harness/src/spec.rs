@@ -468,6 +468,15 @@ pub enum CollectSpec {
         /// The name of the stream that archives the output.
         name: StreamName,
     },
+    /// The file at `path` under the agent's home, which the core reads on the host after the run
+    /// and archives as the stream `name`. A run that never wrote the file leaves no stream.
+    #[non_exhaustive]
+    Home {
+        /// The file's path, relative to the agent's home.
+        path: RelPath,
+        /// The name of the stream that archives the file.
+        name: StreamName,
+    },
 }
 
 impl CollectSpec {
@@ -488,6 +497,12 @@ impl CollectSpec {
     #[must_use]
     pub const fn exec(spec: CommandSpec, name: StreamName) -> Self {
         Self::Exec { spec, name }
+    }
+
+    /// The file at `path` under the agent's home, archived as the stream `name`.
+    #[must_use]
+    pub const fn home(path: RelPath, name: StreamName) -> Self {
+        Self::Home { path, name }
     }
 }
 
@@ -665,6 +680,36 @@ pub enum CheckVerdict {
         /// What the check printed.
         output: String,
     },
+}
+
+/// Whose instruction file a harness loaded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+#[non_exhaustive]
+pub enum LoadedScope {
+    /// The file is the agent's own, from its home.
+    User,
+    /// The file belongs to the workspace.
+    Project,
+}
+
+/// An instruction file the harness loaded at the start of a run, as the census records it.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize)]
+#[non_exhaustive]
+pub struct LoadedFile {
+    /// The path the harness loaded: relative to the workspace for a workspace file, absolute
+    /// otherwise.
+    pub path: String,
+    /// Whose file it is.
+    pub scope: LoadedScope,
+}
+
+impl LoadedFile {
+    /// A loaded file.
+    #[must_use]
+    pub const fn new(path: String, scope: LoadedScope) -> Self {
+        Self { path, scope }
+    }
 }
 
 /// What an experiment sets that reaches the agent. A key whose values form a closed set carries

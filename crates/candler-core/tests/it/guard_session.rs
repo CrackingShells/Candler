@@ -1493,3 +1493,37 @@ async fn session_hooks_leave_the_run_as_it_is() {
         file_list(&hooked.run_dir)
     );
 }
+
+/// Guards: invariant 7 — a run whose hook log shows instruction files loaded records them as the
+/// census value `census.instructions`, through the driver's own reader of the log and the core's
+/// collection of it. The log is the recorded one of the Claude Code driver's fixtures.
+/// Oracle: the fixture's `InstructionsLoaded` lines, and the paths and scopes written by hand.
+/// Bite: skip collecting the log, or record the scope of the workspace file as `user`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn session_census_names_the_instruction_files_the_hooks_saw() {
+    let log = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../candler-harness-claude-code/tests/fixtures/instructions/hooks.jsonl");
+    let loaded: Vec<serde_json::Value> = std::fs::read_to_string(log)
+        .expect("the recorded hook log")
+        .lines()
+        .filter(|line| line.contains("\"hook_event_name\":\"InstructionsLoaded\""))
+        .flat_map(|line| [rig::hook(line), rig::sleep(0.01)])
+        .collect();
+    assert_eq!(loaded.len(), 6, "three loaded lines, each then a pause");
+    let cell = rig::cell_values(&[
+        ("runner.idle_s", j!("none")),
+        ("budget.per_run.wall_s", j!(4)),
+    ]);
+    let mut steps = loaded;
+    steps.extend(rig::replay_of("c1", &BTreeMap::new()));
+    steps.push(rig::wait_eof(None));
+    let ran = rig::run(&steps, &cell, rig::Driver::new(true), None).await;
+    let _ = ran.outcome();
+    assert_eq!(
+        ran.measured("census.instructions"),
+        Some(j!([
+            {"path": "/home/agent/.claude/CLAUDE.md", "scope": "user"},
+            {"path": "CLAUDE.md", "scope": "project"},
+        ]))
+    );
+}

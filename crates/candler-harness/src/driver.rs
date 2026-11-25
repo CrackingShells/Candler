@@ -13,8 +13,8 @@ use crate::reader::TraceReader;
 use crate::skills::SkillTree;
 use crate::spec::{
     AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
-    CommandSpecError, DriverFact, GatewayEnv, HarnessId, Observed, Prepared, PreparedFile,
-    ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
+    CommandSpecError, DriverFact, GatewayEnv, HarnessId, LoadedFile, Observed, Prepared,
+    PreparedFile, ProcessExit, SessionSpec, SessionTracker, StatePath, StopSpec, Workspace,
 };
 
 /// Why a driver could not answer.
@@ -241,6 +241,15 @@ pub trait HarnessDriver: Send + Sync {
     /// unrecorded, never an empty set.
     fn census_stream(&self) -> Option<StreamName> {
         None
+    }
+
+    /// The instruction files the harness loaded, as `stream` shows them: `bytes` is the stream
+    /// the core collected under `stream` after the run, or the gateway's record of it. A driver
+    /// reads the streams it knows and lists nothing for any other. An empty list means no file was
+    /// observed, and the census records nothing.
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        let _ = (stream, bytes);
+        Vec::new()
     }
 
     /// Where a treatment's skill tree comes from and where the harness reads it.

@@ -29,7 +29,7 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CollectSpec, CommandSpec, DriverFact, GatewayEnv, HarnessId,
-    Observed, ProcessExit, SessionTracker, StatePath, StopSpec, Workspace,
+    LoadedFile, Observed, ProcessExit, SessionTracker, StatePath, StopSpec, Workspace,
 };
 use candler_harness_claude_code::driver::ClaudeCodeDriver;
 use candler_schemas::execution::Comparable;
@@ -302,6 +302,9 @@ impl HarnessDriver for Driver {
     }
     fn collect(&self, workspace: &Workspace<'_>, observed: &Observed) -> Vec<CollectSpec> {
         self.inner.collect(workspace, observed)
+    }
+    fn loaded_instructions(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+        self.inner.loaded_instructions(stream, bytes)
     }
 }
 

@@ -34,13 +34,13 @@ pub use self::cell::{CellRun, ExecError};
 use self::collect::finish_attempt;
 use self::ends::{EndInput, TraceFacts, classify_end};
 use self::gather::{
-    collect_commands, collect_outputs, read_stream, resolved_record, spent, store_stream,
-    with_context_start,
+    collect_commands, collect_home, collect_outputs, read_stream, resolved_record, spent,
+    store_stream, with_context_start,
 };
 use self::seal::{RawStreamFile, seal_run};
 use self::session::{SessionHandle, SessionRun, monotonic_clock, session_config};
 use self::spawn::{Started, live_observer_with, require_isolation, start_attempt};
-use super::evidence::census::census;
+use super::evidence::census::{census, census_instructions};
 use super::evidence::leak::input_leak;
 use super::evidence::provenance::provenance_values;
 use super::evidence::run::{RunFacts, run_values};
@@ -642,7 +642,8 @@ async fn drive(
     let live_view = handle.as_ref().map(spawn::LiveHandle::observed);
     let observed_now = live_view.clone().unwrap_or_default(); // BORROW: the view is read again after the finish
     let specs = rt.driver.collect(&workspace, &observed_now);
-    let collected = collect_commands(isolation.as_ref(), &container, &specs).await;
+    let mut collected = collect_commands(isolation.as_ref(), &container, &specs).await;
+    collected.extend(collect_home(&home_dir, &specs));
     let finished = finish_attempt(
         isolation.as_ref(),
         &container,
@@ -678,11 +679,13 @@ async fn drive(
     let declared: Vec<String> = candler_harness::mcp::servers(&view)?
         .map(|servers| servers.into_keys().collect())
         .unwrap_or_default();
+    let mut loaded = Vec::new();
     for item in collected {
         let Ok(bytes) = item.output else {
             collect_ok = false;
             continue;
         };
+        loaded.extend(rt.driver.loaded_instructions(&item.name, &bytes));
         match rt.driver.offline_reader(&item.name, &declared) {
             Some(reader) => {
                 let Ok(read) = read_stream(&frames, &item.name, &bytes, reader) else {
@@ -822,6 +825,7 @@ async fn drive(
     } else {
         census(observed.init.as_ref().or(gateway_init.as_ref())).unwrap_or_default()
     };
+    measured.extend(census_instructions(&loaded).ok().flatten());
 
     let gateway_failed = match &rt.gateway {
         Some(gateway) => gateway

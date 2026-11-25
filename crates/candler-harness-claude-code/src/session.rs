@@ -32,8 +32,8 @@ use std::str::FromStr as _;
 
 use candler_harness::driver::DriverError;
 use candler_harness::spec::{
-    CommandSpec, HookSpec, PendingItem, PendingKind, PendingState, PreparedFile, SessionClose,
-    SessionRecord, SessionSpec, SessionTracker,
+    CollectSpec, CommandSpec, HookSpec, LoadedFile, LoadedScope, PendingItem, PendingKind,
+    PendingState, PreparedFile, SessionClose, SessionRecord, SessionSpec, SessionTracker,
 };
 use candler_schemas::primitives::RelPath;
 use candler_schemas::raw::StreamName;
@@ -50,6 +50,8 @@ const SETTINGS: &str = ".candler/settings.json";
 const HOOK_LOG: &str = ".candler/hooks.jsonl";
 /// The name of the raw stream that archives the hook log.
 const HOOK_STREAM: &str = "hooks";
+/// The name of the raw stream that archives the `InstructionsLoaded` lines of the hook log.
+const LOADED_STREAM: &str = "instructions_loaded";
 /// The hook events the driver installs.
 const HOOK_EVENTS: [&str; 3] = ["InstructionsLoaded", "Stop", "SessionEnd"];
 
@@ -97,6 +99,58 @@ fn hooks() -> Result<HookSpec, DriverError> {
     let stream = StreamName::from_str(HOOK_STREAM)
         .map_err(|error| invalid(HOOK_STREAM, error.to_string()))?; // BORROW: .to_string() gives owned text
     Ok(HookSpec::new(log, stream))
+}
+
+/// What the core collects of the hook log after a run, headless or session: the log, read from
+/// the agent's home and archived as the stream `instructions_loaded`.
+pub(crate) fn log_collect() -> Result<CollectSpec, DriverError> {
+    let stream = StreamName::from_str(LOADED_STREAM)
+        .map_err(|error| invalid(LOADED_STREAM, error.to_string()))?; // BORROW: .to_string() gives owned text
+    let log = RelPath::from_str(HOOK_LOG).map_err(|error| invalid(HOOK_LOG, error.to_string()))?; // BORROW: .to_string() gives owned text
+    Ok(CollectSpec::home(log, stream))
+}
+
+/// The instruction files the hook log of a run shows loaded, in the order they loaded, each once.
+/// `bytes` is the stream `stream`; any other stream lists nothing. A file of a user's own
+/// (`memory_type` `User`) is listed by its absolute path; a file of the workspace (`Project` or
+/// `Local`) by its path from the `cwd` of the payload. A line that is not an `InstructionsLoaded`
+/// payload, or whose memory type is another one, is skipped.
+pub(crate) fn loaded(stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile> {
+    if stream.as_str() != LOADED_STREAM {
+        return Vec::new();
+    }
+    let mut files: Vec<LoadedFile> = Vec::new();
+    for line in bytes.split(|byte| *byte == b'\n') {
+        let Ok(Value::Object(record)) = serde_json::from_slice::<Value>(line) else {
+            continue;
+        };
+        let Some(payload) = record.get("payload").and_then(Value::as_object) else {
+            continue;
+        };
+        if text_of(payload, "hook_event_name") != "InstructionsLoaded" {
+            continue;
+        }
+        let scope = match text_of(payload, "memory_type") {
+            "User" => LoadedScope::User,
+            "Project" | "Local" => LoadedScope::Project,
+            _ => continue,
+        };
+        let path = text_of(payload, "file_path");
+        let cwd = text_of(payload, "cwd");
+        let from_cwd = path
+            .strip_prefix(cwd)
+            .and_then(|rest| rest.strip_prefix('/'))
+            .filter(|_| !cwd.is_empty());
+        let path = match (scope, from_cwd) {
+            (LoadedScope::Project, Some(relative)) => relative,
+            _ => path,
+        };
+        let file = LoadedFile::new(path.to_owned(), scope); // BORROW: .to_owned() gives the file its own path
+        if !path.is_empty() && !files.contains(&file) {
+            files.push(file);
+        }
+    }
+    files
 }
 
 /// The session of a cell: stdin open, the prompt as the first message, closed by end of input, with

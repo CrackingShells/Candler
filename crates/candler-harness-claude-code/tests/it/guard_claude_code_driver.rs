@@ -745,3 +745,78 @@ fn a_payload_cannot_reach_beyond_hooks_and_the_hooks_directory() -> Res<()> {
     }
     Ok(())
 }
+
+/// Guards: invariant 7 — the instruction files the hook log of a run shows loaded, read through the
+/// driver from a recorded `hooks.jsonl`, reach the census as `census.instructions`: the global
+/// file as `user`, the workspace file from its working directory as `project`, once each, and the
+/// `Stop` line not at all; a run with none records nothing.
+/// Oracle: the fixture, written from the payloads the probe recorded, and the expected value by
+/// hand.
+/// Bite: list the `Stop` line, keep the absolute workspace path, or record an empty list.
+#[test]
+fn the_census_names_the_instruction_files_the_hook_log_shows() -> Res<()> {
+    use candler_core::runner::evidence::census::census_instructions;
+    let driver = ClaudeCodeDriver::new();
+    let bytes = fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/instructions/hooks.jsonl"),
+    )?;
+    let stream = driver
+        .collect(&Workspace::new(Path::new("/work")), &Observed::default())
+        .into_iter()
+        .find_map(|spec| {
+            if let CollectSpec::Home { name, .. } = spec {
+                Some(name)
+            } else {
+                None
+            }
+        })
+        .ok_or("the driver collects no hook log")?;
+    let loaded = driver.loaded_instructions(&stream, &bytes);
+    let value = census_instructions(&loaded)?.ok_or("nothing recorded")?;
+    assert_eq!(value.path().to_string(), "census.instructions");
+    assert_eq!(
+        serde_json::to_value(value.value())?,
+        json!([
+            {"path": "/home/agent/.claude/CLAUDE.md", "scope": "user"},
+            {"path": "CLAUDE.md", "scope": "project"},
+        ])
+    );
+    let other: candler_schemas::raw::StreamName = "stdout".parse()?;
+    assert_eq!(driver.loaded_instructions(&other, &bytes), []);
+    assert!(census_instructions(&[])?.is_none());
+    Ok(())
+}
+
+/// Guards: the config check — `claude doctor` runs, an `Invalid settings` section with its bullets
+/// is a rejection whatever the exit status and the install-method warnings, and its absence is a
+/// clean check.
+/// Oracle: output written by hand from the lines the probe quoted.
+/// Bite: reject on the `warnings found` block, or ignore a warning under the heading.
+#[test]
+fn the_config_check_reads_the_invalid_settings_section() -> Res<()> {
+    use candler_harness::spec::CheckVerdict;
+    let driver = ClaudeCodeDriver::new();
+    let cell = values("default")?;
+    let plan = driver.plan(&Cell::new(&cell), &Workspace::new(Path::new("/work")))?;
+    assert_eq!(
+        driver.config_check(&plan).ok_or("no check")?.argv(),
+        ["claude", "doctor"]
+    );
+    let clean =
+        b"Diagnostics\n Remote Control: off\n\n 4 warnings found\n  - Multiple installations\n";
+    assert_eq!(driver.read_config_check(clean), CheckVerdict::Clean);
+    let bad = b"Diagnostics\n\nInvalid settings\n  - /work/.claude/settings.json: Invalid or malformed JSON\n\n 4 warnings found\n  - Multiple installations\n";
+    assert_eq!(
+        driver.read_config_check(bad),
+        CheckVerdict::Rejected {
+            output: "Invalid settings\n  - /work/.claude/settings.json: Invalid or malformed JSON"
+                .to_owned()
+        }
+    );
+    let warn = b"Invalid settings\n  - hooks.NoSuchEvent: Unknown hook event \"NoSuchEvent\" was ignored.\n";
+    assert!(matches!(
+        driver.read_config_check(warn),
+        CheckVerdict::Rejected { .. }
+    ));
+    Ok(())
+}
