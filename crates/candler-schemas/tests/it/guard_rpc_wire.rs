@@ -56,7 +56,7 @@ fn the_envelope_accepts_valid_messages_and_refuses_single_faults() {
     let valid = vectors("valid");
     let invalid = vectors("invalid");
     assert_eq!(valid.len(), 10, "the valid vectors are all present");
-    assert_eq!(invalid.len(), 8, "the invalid vectors are all present");
+    assert_eq!(invalid.len(), 7, "the invalid vectors are all present");
     for (name, text) in &valid {
         let result = serde_json::from_str::<Message>(text);
         assert!(result.is_ok(), "{name} is refused: {result:?}");

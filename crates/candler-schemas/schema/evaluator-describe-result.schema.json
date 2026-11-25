@@ -151,7 +151,7 @@
     },
     "Needs": {
       "additionalProperties": false,
-      "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A key that is not one of these is refused.",
+      "description": "What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent.",
       "properties": {
         "artifacts": {
           "description": "Globs, relative to the run, of the artifacts the check reads. The artifacts are the files the run produced.",

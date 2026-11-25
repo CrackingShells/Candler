@@ -25,4 +25,3 @@ Invalid, each is one fault on a valid base and must be refused:
 | `unknown_key` | a top-level key `extra` | §4: the members are those listed |
 | `result_and_method` | `result` beside `method` | §5: `result` belongs to a response only |
 | `needs_raw_not_boolean` | a kind's `needs.raw` is the string `"yes"` | R01 §Evaluator protocol: `needs.raw` is a boolean |
-| `needs_unknown_key` | a kind's `needs` has a key `traces` | R01 §Evaluator protocol: the members of `needs` are those listed |

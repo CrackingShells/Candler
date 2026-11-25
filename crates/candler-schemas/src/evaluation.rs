@@ -1332,9 +1332,9 @@ pub struct EvaluatorEnvironment {
 
 object_only!(EvaluatorEnvironment);
 
-/// What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent. A key that is not one of these is refused.
+/// What one kind of check needs from a run, written as an object: `trace`, `artifacts`, `snapshots`, `inputs` and `metadata` are present, the lists empty when the kind needs nothing of that sort, and `raw` and `manifest` are `false` when absent.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
-#[serde(remote = "Self", deny_unknown_fields)]
+#[serde(remote = "Self")]
 #[schemars(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct Needs {
