@@ -316,8 +316,12 @@
               "$ref": "#/$defs/Denial",
               "description": "Who refused the call, when it was refused."
             },
+            "exit": {
+              "$ref": "#/$defs/ExitStatus",
+              "description": "How the shell call ended, as the harness reported it: `{kind: code, code}` or `{kind: signal, signal}`. Absent when the call is not a shell call, was denied, or came back without a code."
+            },
             "is_error": {
-              "description": "Whether the result is an error.",
+              "description": "Whether the harness marked the result as an error. A harness decides this for itself, so for a shell call it is not comparable across harnesses: read `exit` for the status.",
               "type": "boolean"
             },
             "kind": {
@@ -397,6 +401,51 @@
             "output_tokens",
             "cache_read_tokens",
             "cache_creation_tokens"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ExitStatus": {
+      "description": "How a process ended: an object whose `kind` is `code` (with the integer `code`) or `signal` (with the integer `signal`).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The process exited with a status code.",
+          "properties": {
+            "code": {
+              "description": "The exit code.",
+              "format": "int32",
+              "type": "integer"
+            },
+            "kind": {
+              "const": "code",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "code"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A signal ended the process.",
+          "properties": {
+            "kind": {
+              "const": "signal",
+              "type": "string"
+            },
+            "signal": {
+              "description": "The signal number.",
+              "format": "int32",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "signal"
           ],
           "type": "object"
         }

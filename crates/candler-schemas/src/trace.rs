@@ -23,6 +23,7 @@ use crate::primitives::{
     Digest, Name, NameVersion, ReasonCode, SEMVER_PATTERN, Timestamp, object_only, present,
     schema_tag, text_type,
 };
+use crate::process::ExitStatus;
 use crate::raw::{RawRef, StreamName};
 
 /// The version marker of a trace file, written in its header.
@@ -781,10 +782,14 @@ pub enum EventKind {
     /// A tool call came back.
     #[non_exhaustive]
     ToolResult {
-        /// Whether the result is an error.
+        /// Whether the harness marked the result as an error. A harness decides this for itself,
+        /// so for a shell call it is not comparable across harnesses: read `exit` for the status.
         is_error: bool,
         /// Who refused the call, when it was refused.
         denied: Option<Denial>,
+        /// How the shell call ended, as the harness reported it. Absent when the call is not a
+        /// shell call, was denied, or came back without a code.
+        exit: Option<ExitStatus>,
     },
     /// A line of the stream that is none of the other kinds; its content is in the event's `ext`.
     #[non_exhaustive]
@@ -856,8 +861,16 @@ impl EventKind {
 
     /// A tool result.
     #[must_use]
-    pub const fn tool_result(is_error: bool, denied: Option<Denial>) -> Self {
-        Self::ToolResult { is_error, denied }
+    pub const fn tool_result(
+        is_error: bool,
+        denied: Option<Denial>,
+        exit: Option<ExitStatus>,
+    ) -> Self {
+        Self::ToolResult {
+            is_error,
+            denied,
+            exit,
+        }
     }
 
     /// A notification.
@@ -950,7 +963,7 @@ enum KnownKind {
     },
     /// A tool call came back.
     ToolResult {
-        /// Whether the result is an error.
+        /// Whether the harness marked the result as an error. A harness decides this for itself, so for a shell call it is not comparable across harnesses: read `exit` for the status.
         is_error: bool,
         /// Who refused the call, when it was refused.
         #[serde(
@@ -959,6 +972,13 @@ enum KnownKind {
             deserialize_with = "present"
         )]
         denied: Option<Denial>,
+        /// How the shell call ended, as the harness reported it: `{kind: code, code}` or `{kind: signal, signal}`. Absent when the call is not a shell call, was denied, or came back without a code.
+        #[serde(
+            default,
+            skip_serializing_if = "Option::is_none",
+            deserialize_with = "present"
+        )]
+        exit: Option<ExitStatus>,
     },
     /// A line of the stream that is none of the other kinds; its content is in the event's `ext`.
     Notification,
