@@ -15,7 +15,7 @@ The whole diff is judged by someone with no stake in it, and every finding is fi
 ## Status
 ```mermaid
 graph TD
-    adversarial_review[Adversarial review]:::planned
+    adversarial_review[Adversarial review]:::inprogress
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -26,7 +26,7 @@ graph TD
 ## Nodes
 | Node | Type | Status |
 |:-----|:-----|:-------|
-| `adversarial_review.md` | 📄 Leaf Task | ⬜ Planned |
+| `adversarial_review.md` | 📄 Leaf Task | 🔄 In Progress |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
