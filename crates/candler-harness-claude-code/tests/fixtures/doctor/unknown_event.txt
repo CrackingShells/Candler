@@ -1,0 +1,36 @@
+Claude Code doctor
+
+Running: native (2.1.311)
+Commit: e7d3b8365a0f
+Platform: linux-arm64
+Path: /usr/local/bin/claude
+Config install method: not set
+Search: OK (bundled)
+Auto-updates: enabled
+Auto-update channel: latest
+Last update attempt: none recorded
+Managed settings (remote): not fetched — no usable credentials for the settings fetch
+Organization policy: not fetched: no API key or claude.ai sign-in for the policy lookup (apiKeyHelper keys are not used for it)
+
+Invalid settings
+- /work/.claude/settings.json › hooks.NoSuchEvent: Unknown hook event "NoSuchEvent" was ignored. Valid events: PreToolUse, PostToolUse, PostToolUseFailure, PostToolBatch, Notification, UserPromptSubmit, UserPromptExpansion, SessionStart, SessionEnd, Stop, StopFailure, SubagentStart, SubagentStop, PreCompact, PostCompact, PreModelSwitch, PostModelSwitch, PermissionRequest, PermissionDenied, Setup, TeammateIdle, TaskCreated, TaskCompleted, Elicitation, ElicitationResult, ConfigChange, WorktreeCreate, WorktreeRemove, InstructionsLoaded, CwdChanged, FileChanged, DirectoryAdded, MessageDisplay
+
+Remote Control
+Remote Control requires a claude.ai subscription. Run claude auth login to sign in with your claude.ai account.
+- Not signed in to claude.ai
+- claude.ai subscription auth not active
+- Sign-in is missing the user:profile scope
+- Organization not resolved
+- Remote Control availability could not be verified (no server response this session)
+
+4 warnings found
+- Native installation exists but ~/.local/bin is not in your PATH
+  Fix: Run: echo 'export PATH="$HOME/.local/bin:$PATH"' >> your shell config file then open a new terminal or run: source your shell config file
+- Running native installation but config install method is 'not set'
+  Fix: Run claude install to update configuration
+- claude command at /home/agent/.local/bin/claude missing or broken (/home/agent/.local/bin does not exist)
+  Fix: Run claude install to repair the installation.
+- claude command at /home/agent/.local/bin/claude missing or broken
+  Fix: Run claude install to repair the installation.
+
+For a full setup checkup that can also fix issues, run /doctor in a Claude Code session.

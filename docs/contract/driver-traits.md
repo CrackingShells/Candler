@@ -33,6 +33,7 @@ Core line: `v0.16.0`; the `candler-harness` crate has the same version.
 | `HarnessDriver::gateway` | `(&self) -> Option<GatewayEnv>` | optional | `None` |
 | `HarnessDriver::state_paths` | `(&self) -> Vec<StatePath>` | optional | `Vec::new()` |
 | `HarnessDriver::census_stream` | `(&self) -> Option<StreamName>` | optional | `None` |
+| `HarnessDriver::loaded_instructions` | `(&self, stream: &StreamName, bytes: &[u8]) -> Vec<LoadedFile>` | optional | `Vec::new()` |
 | `HarnessDriver::skills` | `(&self) -> SkillTree` | required | - |
 | `HarnessDriver::base_image` | `(&self) -> BaseImage` | required | - |
 | `HarnessDriver::offline_streams` | `(&self) -> Vec<StreamName>` | optional | `Vec::new()` |

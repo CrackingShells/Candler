@@ -413,7 +413,10 @@ fn harness_env_claude_code_argv_equals_cf3de30() {
     let driver = ClaudeCodeDriver::new();
     let argv = facts::agent_argv(&scene, &driver, &facts::reference_command()).expect("an argv");
     let baseline = recorded("argv.json");
-    assert_eq!(argv, words(&baseline["headless_run"]));
+    // The baseline's command line, then the observers' settings file the driver has added since.
+    let mut expected = words(&baseline["headless_run"]);
+    expected.extend(["--settings", "/home/agent/.candler/settings.json"].map(str::to_owned)); // BORROW: str::to_owned makes the owned words
+    assert_eq!(argv, expected);
 }
 
 /// Guards: R01 §Process supervision — the supervised client attaches to the created container

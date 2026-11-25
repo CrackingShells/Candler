@@ -3,7 +3,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::io;
+use std::io::{self, Read as _, Seek as _, SeekFrom};
 use std::os::unix::fs::PermissionsExt as _;
 use std::path::Path;
 
@@ -15,10 +15,12 @@ use candler_schemas::outcome::Finite;
 use candler_schemas::raw::{Clock, RawRef, StreamName};
 use candler_schemas::trace::{Event, EventKind, Session, SessionEvent, SessionId, UsageScope};
 use regex::Regex;
+use rustix::fs::{Mode, OFlags};
 use serde_json::{Value, json};
 
 use super::ends::TraceFacts;
 use crate::frames::{FrameReader, FrameWriter, RawFileInfo};
+use crate::isolation::docker::OUTPUT_LIMIT;
 use crate::isolation::model::ContainerPlan;
 use crate::isolation::{Isolation, IsolationError};
 use crate::runner::Usage;
@@ -176,6 +178,68 @@ pub async fn collect_commands(
                 name: name.clone(), // BORROW: the result owns the stream name
                 output: isolation.collect_exec(plan, spec).await,
             });
+        }
+    }
+    found
+}
+
+/// Reads a log the agent wrote in its home, from byte `from` on, without trusting the agent: the
+/// path is opened without following a link, must be a regular file, and may hold at most
+/// [`OUTPUT_LIMIT`] bytes, the most a client's output keeps. The agent controls the file, so a link
+/// to a file of the host, a device or a pipe, and a file of any other length, are refused.
+///
+/// # Errors
+/// [`io::ErrorKind::NotFound`] when there is no such file; any other error when the file is
+/// refused or cannot be read.
+pub(super) fn read_home_log(path: &Path, from: u64) -> io::Result<Vec<u8>> {
+    // A pipe opens without waiting for a writer, and is refused below.
+    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC;
+    let mut file = fs::File::from(rustix::fs::open(path, flags, Mode::empty())?);
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    let limit = u64::try_from(OUTPUT_LIMIT).unwrap_or(u64::MAX);
+    file.seek(SeekFrom::Start(from))?;
+    let mut bytes = Vec::new();
+    // One byte more than the limit shows a file that is longer than it.
+    file.take(limit.saturating_add(1)).read_to_end(&mut bytes)?;
+    if from.saturating_add(u64::try_from(bytes.len()).unwrap_or(u64::MAX)) > limit {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("longer than {limit} bytes"),
+        ));
+    }
+    Ok(bytes)
+}
+
+/// Reads each file of `home` the driver's collect specs name, in order, and returns what each
+/// holds under its stream name. A file the run never wrote leaves nothing; one that is refused (a
+/// link, not a regular file, too long) or cannot be read is that spec's own failed result. A spec
+/// whose stream is `archived` is not read: the run already archived that stream.
+#[must_use]
+pub fn collect_home(
+    home: &Path,
+    specs: &[CollectSpec],
+    archived: Option<&StreamName>,
+) -> Vec<Collected> {
+    let mut found = Vec::new();
+    for spec in specs {
+        if let CollectSpec::Home { path, name, .. } = spec
+            && archived != Some(name)
+        {
+            match read_home_log(&home.join(path.as_str()), 0) {
+                // BORROW: explicit .as_str()
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                read => found.push(Collected {
+                    name: name.clone(), // BORROW: the result owns the stream name
+                    output: read.map_err(|error| IsolationError::Plan {
+                        detail: format!("cannot read {path} of the agent's home: {error}"),
+                    }),
+                }),
+            }
         }
     }
     found
@@ -404,5 +468,54 @@ mod tests {
         assert!(!hidden.is_match("x/hidden/s.json"));
         let top = glob_regex(".hidden/**").expect("glob");
         assert!(top.is_match(".hidden/a/b") && !top.is_match("x/.hidden/a"));
+    }
+
+    fn home_spec() -> CollectSpec {
+        CollectSpec::home(
+            ".candler/hooks.jsonl".parse().expect("a path"),
+            "hooks".parse().expect("a stream"),
+        )
+    }
+
+    fn log_in(home: &Path) -> std::path::PathBuf {
+        fs::create_dir_all(home.join(".candler")).expect("a directory");
+        home.join(".candler/hooks.jsonl")
+    }
+
+    /// Guards: the home's log is read as a regular file of a bounded length and nothing else.
+    /// Oracle: the target of the link holds bytes a followed link would return.
+    /// Bite: read with `fs::read`, or drop the length check.
+    #[test]
+    fn home_log_is_read_only_as_a_bounded_regular_file() {
+        let home = tempfile::tempdir().expect("a home");
+        let specs = [home_spec()];
+        assert!(collect_home(home.path(), &specs, None).is_empty(), "no log");
+
+        let log = log_in(home.path());
+        fs::write(&log, b"{}\n").expect("a log");
+        let read = collect_home(home.path(), &specs, None);
+        assert_eq!(read.len(), 1);
+        assert_eq!(read[0].output.as_ref().expect("read"), b"{}\n");
+        assert!(collect_home(home.path(), &specs, Some(&read[0].name)).is_empty());
+
+        fs::remove_file(&log).expect("remove");
+        let target = home.path().join("target");
+        fs::write(&target, b"host file").expect("a target");
+        std::os::unix::fs::symlink(&target, &log).expect("a link");
+        let read = collect_home(home.path(), &specs, None);
+        assert!(read[0].output.is_err(), "a link is refused");
+
+        fs::remove_file(&log).expect("remove");
+        fs::write(&log, vec![b'x'; OUTPUT_LIMIT + 1]).expect("a long log");
+        let read = collect_home(home.path(), &specs, None);
+        assert!(read[0].output.is_err(), "a long log is refused");
+        fs::write(&log, vec![b'x'; OUTPUT_LIMIT]).expect("a log at the limit");
+        let read = collect_home(home.path(), &specs, None);
+        assert_eq!(read[0].output.as_ref().expect("read").len(), OUTPUT_LIMIT);
+
+        fs::remove_file(&log).expect("remove");
+        fs::create_dir(&log).expect("a directory");
+        let read = collect_home(home.path(), &specs, None);
+        assert!(read[0].output.is_err(), "a directory is refused");
     }
 }

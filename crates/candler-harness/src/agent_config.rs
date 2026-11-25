@@ -5,24 +5,14 @@
 //! holds `instructions.global` and `hooks` as tables whose keys are harness ids, spelled as
 //! registered, and every such key must be one of [`HARNESS_IDS`].
 
-use candler_schemas::agent_config::{ClaudeCodeHooks, Instructions, OpenCodeHooks};
+use candler_schemas::agent_config::Instructions;
 use candler_schemas::field_path;
 use candler_schemas::primitives::FieldPath;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 use crate::driver::DriverError;
-use crate::spec::{CLAUDE_CODE, Cell, HARNESS_IDS, OPENCODE};
-
-/// The hooks the cell gives the harness it runs.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum Hooks {
-    /// The hooks of a Claude Code cell.
-    ClaudeCode(ClaudeCodeHooks),
-    /// The hooks of an `OpenCode` cell.
-    OpenCode(OpenCodeHooks),
-}
+use crate::spec::{Cell, HARNESS_IDS};
 
 fn invalid(path: &FieldPath, detail: impl Into<String>) -> DriverError {
     DriverError::InvalidValue {
@@ -76,13 +66,17 @@ pub fn instructions(cell: &Cell<'_>, harness: &str) -> Result<Option<Instruction
     Ok(Some(found))
 }
 
-/// The hooks of a cell for `harness`. `None` when the cell sets none.
+/// The hooks of a cell for `harness`, read as the envelope `T` of that harness. `None` when the
+/// cell sets none.
 ///
 /// # Errors
 /// [`DriverError::InvalidValue`] when a key names no registered harness or the entry of `harness`
-/// does not fit its envelope (a hook file whose path is not a relative path included), and
+/// does not fit `T` (a hook file whose path is not a relative path included), and
 /// [`DriverError::MissingValue`] when the cell sets hooks and none for `harness`.
-pub fn hooks(cell: &Cell<'_>, harness: &str) -> Result<Option<Hooks>, DriverError> {
+pub fn hooks<T: DeserializeOwned>(
+    cell: &Cell<'_>,
+    harness: &str,
+) -> Result<Option<T>, DriverError> {
     let root = field_path!("hooks");
     let Some(table) = cell.table_at(&root)? else {
         return Ok(None);
@@ -92,10 +86,5 @@ pub fn hooks(cell: &Cell<'_>, harness: &str) -> Result<Option<Hooks>, DriverErro
         return Err(DriverError::MissingValue { path: root });
     };
     // BORROW: .clone() copies the entry out of the table
-    let entry = entry.clone();
-    match harness {
-        CLAUDE_CODE => read(entry, &root).map(|found| Some(Hooks::ClaudeCode(found))),
-        OPENCODE => read(entry, &root).map(|found| Some(Hooks::OpenCode(found))),
-        other => Err(invalid(&root, format!("`{other}` has no hooks"))),
-    }
+    read(entry.clone(), &root).map(Some)
 }

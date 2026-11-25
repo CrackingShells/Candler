@@ -16,7 +16,9 @@ mod sessions;
 mod usage;
 
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
-use candler_harness::spec::{Confidence, FormatVersion, Framing, InitReport, Observed, RunTotals};
+use candler_harness::spec::{
+    CLAUDE_CODE, Confidence, FormatVersion, Framing, InitReport, Observed, RunTotals,
+};
 use candler_schemas::name;
 use candler_schemas::primitives::{Name, NameVersion, Timestamp};
 use candler_schemas::raw::RawRef;
@@ -50,9 +52,6 @@ pub fn supported() -> semver::VersionReq {
 
 /// The Claude Code version the base image installs, which [`supported`] accepts.
 pub const PINNED: semver::Version = semver::Version::new(2, 1, 311);
-
-/// The name of the harness that produced the streams the reader reads.
-const HARNESS: &str = "claude-code";
 
 /// The identity of this reader as text, `claude-code-stream-json@<reader version>`; the version changes whenever the reader's output does.
 pub const READER: &str = "claude-code-stream-json@0.2.0";
@@ -257,7 +256,7 @@ impl TraceReader for ClaudeCodeReader {
         };
         let reader = self.identity;
         let source = SessionSource::new(
-            name(HARNESS)?,
+            name(CLAUDE_CODE)?,
             version,
             name(reader.name())?,
             // BORROW: .clone() copies the reader version

@@ -16,7 +16,7 @@ use crate::driver::{DriverError, HarnessDriver, Plan};
 use crate::reader::{FrameIn, TraceReader};
 use crate::spec::{
     Action, AgentSetting, Cell, CensusSource, CollectSpec, CommandSpec, DriverFact, EnvValue,
-    FileRoot, Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
+    Framing, HttpMethod, InitReport, Observed, ObservedEnd, PendingState, PreparedFile,
     ProcessExit, SessionClose, SessionRecord, StateKind, StopSpec, Workspace,
 };
 
@@ -748,26 +748,6 @@ fn check_capabilities(
         if let SessionClose::Action(action) = &spec.close {
             check_action("session", action, setup, owned)?;
         }
-        if let Some(hooks) = &spec.hooks {
-            let declared = declared_names(driver);
-            for file in &hooks.files {
-                if file.root != FileRoot::Home {
-                    return Err(driver_failure(
-                        "session",
-                        format!("hook file {} is not rooted at the agent's home", file.path),
-                    ));
-                }
-                check_file_references("session", file, &declared)?;
-                let text = String::from_utf8_lossy(&file.contents);
-                // BORROW: explicit .as_str() instead of Deref coercion
-                if setup.canaries.iter().any(|c| text.contains(c.as_str())) {
-                    return Err(driver_failure(
-                        "session",
-                        format!("a secret value is in hook file {}", file.path),
-                    ));
-                }
-            }
-        }
     }
     if !driver.fact(DriverFact::Census).is_refused() {
         let from_stream = driver.census_stream().is_some();
@@ -1063,7 +1043,7 @@ fn check_collect(
                 }
             }
             CollectSpec::Exec { spec, .. } => check_command("collect", spec, setup, owned)?,
-            CollectSpec::File { .. } => {}
+            CollectSpec::File { .. } | CollectSpec::Home { .. } => {}
         }
     }
     Ok(())

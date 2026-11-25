@@ -1,12 +1,14 @@
-//! The files the driver asks the core to write into the workspace: the settings and the MCP
-//! configuration.
+//! The files the driver asks the core to write: the settings, the hook files, the MCP
+//! configuration and the instruction texts.
 //!
 //! Nothing here touches the file system or runs a process.
 
 use std::str::FromStr as _;
 
+use candler_harness::agent_config::{hooks, instructions};
 use candler_harness::driver::DriverError;
-use candler_harness::spec::{Cell, PreparedFile};
+use candler_harness::spec::{CLAUDE_CODE, Cell, PreparedFile};
+use candler_schemas::agent_config::ClaudeCodeHooks;
 use candler_schemas::execution::paths::{TOOLS_ALLOWED, TOOLS_DISALLOWED};
 use candler_schemas::field_path;
 use candler_schemas::primitives::RelPath;
@@ -53,8 +55,10 @@ fn json_file(path: &str, value: &Value) -> Result<PreparedFile, DriverError> {
     Ok(PreparedFile::new(rel, text.into_bytes(), false))
 }
 
-/// The `.claude/settings.json` file of a cell: `permissions.allow` from `tools.allowed` and
-/// `permissions.deny` from `tools.disallowed`, each only when the cell sets it.
+/// The `.claude/settings.json` file of a cell: `permissions.allow` from `tools.allowed`,
+/// `permissions.deny` from `tools.disallowed` and `hooks` from the `settings` of the cell's Claude
+/// Code hooks, each only when the cell sets it. Nothing else of the hooks is taken, so they cannot
+/// set another key.
 ///
 /// # Errors
 /// [`DriverError`] when a value of the cell cannot be used.
@@ -81,8 +85,80 @@ pub fn render_settings(cell: &Cell<'_>) -> Result<PreparedFile, DriverError> {
         // BORROW: .to_owned() makes the owned key
         root.insert("permissions".to_owned(), Value::Object(permissions));
     }
+    if let Some(settings) =
+        hooks::<ClaudeCodeHooks>(cell, CLAUDE_CODE)?.and_then(|found| found.settings)
+    {
+        // BORROW: .to_owned() makes the owned key
+        root.insert("hooks".to_owned(), Value::Object(settings));
+    }
     json_file(".claude/settings.json", &Value::Object(root))
 }
+
+/// The directory the hook files of a cell go under, relative to the workspace.
+const HOOK_DIR: &str = ".claude/hooks";
+
+/// The hook files of a cell, each under `.claude/hooks/` and executable.
+///
+/// # Errors
+/// [`DriverError`] when the cell's hooks do not fit their envelope or a path cannot be used.
+pub fn render_hook_files(cell: &Cell<'_>) -> Result<Vec<PreparedFile>, DriverError> {
+    let Some(found) = hooks::<ClaudeCodeHooks>(cell, CLAUDE_CODE)? else {
+        return Ok(Vec::new());
+    };
+    found
+        .files
+        .iter()
+        .map(|(path, text)| {
+            let at = format!("{HOOK_DIR}/{path}");
+            let rel =
+                RelPath::from_str(&at).map_err(|error| invalid("hooks", error.to_string()))?; // BORROW: .to_string() gives owned text
+            Ok(PreparedFile::new(rel, text.as_bytes().to_vec(), true)) // BORROW: .to_vec() copies the text into the file
+        })
+        .collect()
+}
+
+/// The instruction files of a cell: the global text as `.claude/CLAUDE.md` in the agent's home, and
+/// the workspace text as `CLAUDE.md`, each only when the cell sets it. The workspace file is
+/// mounted read-only by the core and written by no driver, so it is the plan's workspace file.
+///
+/// # Errors
+/// [`DriverError`] when the cell's instructions cannot be used.
+pub fn render_instructions(
+    cell: &Cell<'_>,
+) -> Result<(Option<PreparedFile>, Option<PreparedFile>), DriverError> {
+    let Some(found) = instructions(cell, CLAUDE_CODE)? else {
+        return Ok((None, None));
+    };
+    let file =
+        |path: &str| RelPath::from_str(path).map_err(|error| invalid(path, error.to_string())); // BORROW: .to_string() gives owned text
+    let global_path = file(GLOBAL_FILE)?;
+    let workspace_path = file(WORKSPACE_FILE)?;
+    let global = found.global.get(CLAUDE_CODE).map(|text| {
+        // BORROW: .to_vec() copies the text into the file
+        PreparedFile::in_home(global_path, text.as_bytes().to_vec(), false)
+    });
+    let workspace = found.workspace.as_ref().map(|text| {
+        // BORROW: .to_vec() copies the text into the file
+        PreparedFile::new(workspace_path, text.as_bytes().to_vec(), false)
+    });
+    Ok((global, workspace))
+}
+
+/// Whether the cell sets a global text for Claude Code, which only the `user` setting source reads.
+///
+/// # Errors
+/// [`DriverError`] when the cell's instructions cannot be used.
+pub fn has_global(cell: &Cell<'_>) -> Result<bool, DriverError> {
+    Ok(
+        instructions(cell, CLAUDE_CODE)?
+            .is_some_and(|found| found.global.contains_key(CLAUDE_CODE)),
+    )
+}
+
+/// The global instruction file, relative to the agent's home.
+const GLOBAL_FILE: &str = ".claude/CLAUDE.md";
+/// The workspace instruction file, at the workspace root.
+pub(crate) const WORKSPACE_FILE: &str = "CLAUDE.md";
 
 /// The file the MCP configuration is written to, and that the agent command names.
 pub(crate) const MCP_FILE: &str = ".mcp.json";
