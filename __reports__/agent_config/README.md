@@ -31,4 +31,6 @@ On 2026-11-25 Eliott ruled on the two points that round 03 raised. The roadmap's
 
 Level 1 is done and merged locally. On 2026-11-25 Eliott raised the cap from $85 to $125, after level 1 measured $55.40: planning $14, build $41. Level 2 runs on closed-scope briefs and a fresh agent for each fix round.
 
+On 2026-11-25 level 2 found that a resolve step cannot reach a cell's plan, which the harness check needs. The check moved beside the start check of the declared servers (`check_servers`, before the job's first run), and the collision check moved to planning. G6 and G10 are worded accordingly; the check still runs before any agent.
+
 No decision is open.

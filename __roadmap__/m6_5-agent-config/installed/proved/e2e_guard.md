@@ -7,7 +7,7 @@
 **Success Gates**:
 - ⬜ G4. From the trace: on each harness, the `context_start` of arm A's run holds the global text and workspace text A, verbatim, in its `system` or its `first_message`, and neither holds workspace text B, and the reverse holds for arm B. On the base, the experiment is `unknown_path`.
 - ⬜ G5. The scripted tool call is answered with an error carrying the hook's marker: a Claude Code PreToolUse script exits 2, and an OpenCode plugin throws in `execute.before`. On the base, there is no hook and the call succeeds.
-- ⬜ G6. On real images, an invalid payload (a Claude Code hooks entry on an unknown event; an OpenCode plugin with no default export) is refused at `resolve` with `experiment.harness_rejected_input`, quoting the harness, and the valid payload passes. On the base, it is `unknown_path`.
+- ⬜ G6. On real images, an invalid payload (a Claude Code hooks entry on an unknown event; an OpenCode plugin with no default export) is refused before the job's first run with `experiment.harness_rejected_input`, quoting the harness, and the valid payload passes. On the base, the job runs.
 - ⬜ G7. Each run's census lists both installed instruction files with their scope: on Claude Code the global file where the probe settled and the root `CLAUDE.md` (Project); on OpenCode the global `AGENTS.md` and the root `AGENTS.md`.
 - ⬜ G9. No installed file, the root instruction file included, is among any run's collected outputs, and no run is sealed `input_leak`.
 - ⬜ G1 (end to end). `candler resolve` of the guard's experiment succeeds, and the `inspect` of one of its runs shows `instructions` and `hooks` with the arm's values.
@@ -19,7 +19,7 @@
 ## Step 1: The guards
 **Goal**: Two guards that read what a consumer reads.
 **Implementation Logic**:
-`guard_agent_config_e2e` runs one experiment with a global text per harness, two arms (workspace text A or B) and one blocking hook and one session-start hook per harness on both harnesses. It reads `inspect`'s members, the rendered files in the run, the stored trace's `context_start` and the stored census, as a consumer does, not the fake model's records. `guard_harness_check_refuses` runs `resolve` on real images with no model. Reuse the parity e2e's helpers; do not copy them. The check's output must list both guards as passed.
+`guard_agent_config_e2e` runs one experiment with a global text per harness, two arms (workspace text A or B) and one blocking hook and one session-start hook per harness on both harnesses. It reads `inspect`'s members, the rendered files in the run, the stored trace's `context_start` and the stored census, as a consumer does, not the fake model's records. `guard_harness_check_refuses` starts a job on real images with no model and reads its refusal. Reuse the parity e2e's helpers; do not copy them. The check's output must list both guards as passed.
 **Deliverables**: `crates/candler/tests/it/guard_cli_e2e/agent_config_e2e.rs`; the fake model's script for the blocked call
 **Consistency Checks**: `cargo nextest run -p candler --run-ignored all -E 'test(agent_config) | test(harness_check)'` (expected: PASS)
 **Commit**: `test(cli): prove instructions and hooks on both harnesses`
