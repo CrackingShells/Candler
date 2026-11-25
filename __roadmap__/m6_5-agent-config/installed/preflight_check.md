@@ -1,7 +1,7 @@
 # Preflight check
 
 **Goal**: Before any run, `candler resolve` runs each harness's own check on what Candler installed. It refuses a cell with any finding, quoting the harness, and records a clean verdict. The core also mounts each plan's read-only workspace file through `mount_inputs`, and refuses one that collides with a declared input. (P0)
-**Estimate**: Sonnet, $9, cap $18. At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
+**Estimate**: Sonnet, $9, cap $18. If the work outgrows the leaf or meets a question its brief does not answer, hand back with the question, the evidence and what is green. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:

@@ -1,7 +1,7 @@
 # Install on Claude Code
 
 **Goal**: On Claude Code, the global text loads from where the probe settled, the workspace text loads as the root `CLAUDE.md`, and the hooks run, and every run's census names the memory files that loaded. (P0)
-**Estimate**: Sonnet, $7, cap $14. At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
+**Estimate**: Sonnet, $7, cap $14. If the work outgrows the leaf or meets a question its brief does not answer, hand back with the question, the evidence and what is green. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 - [ ] `[nl]` The probe report settles (a), (b), (e) and (f)
@@ -24,7 +24,7 @@ Extend `render_settings` with the `hooks` key. Do not write a second settings re
 ## Step 2: Census and check
 **Goal**: A run says which memory files loaded, and the driver supplies its harness check.
 **Implementation Logic**:
-Read the `InstructionsLoaded` records into the census. Implement `config_check` and `read_config_check` from the probe: any error or warning becomes a finding. Flip the answers to Mapped.
+Read the `InstructionsLoaded` records into the census through one harness-neutral channel (a list of loaded files, each with its path and its scope, `user` or `project`) that the core records as a census value; `install_opencode` fills the same channel. Implement `config_check` and `read_config_check` from the probe: any error or warning becomes a finding. Flip the answers to Mapped.
 **Deliverables**: the census reader; `config_check`, `read_config_check`; the census guard
 **Consistency Checks**: `cargo nextest run -p candler-harness-claude-code` and `cargo nextest run -p candler contract_pages` (expected: PASS)
 **Commit**: `feat(harness): record loaded memory files on Claude Code`

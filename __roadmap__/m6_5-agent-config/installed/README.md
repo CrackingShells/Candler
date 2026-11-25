@@ -1,7 +1,7 @@
 # Installed
 
 ## Context
-L2 of M6.5. It runs after `probe_harness_checks.md` (which harness checks are reliable) and `declaration.md` (the settings, the one reader, the refusals). Its three leaves touch three separate crates: the Claude Code driver, the OpenCode driver and core. A seam review of the whole diff follows its close.
+L2 of M6.5. It runs after `probe_harness_checks.md` (which harness checks are reliable) and `declaration.md` (the settings, the one reader, the refusals). Its three leaves touch three separate crates: the Claude Code driver, the OpenCode driver and core. `install_claude_code` defines the census channel for loaded instruction files, as the reference harness, and `install_opencode` starts once that channel has merged, so the two drivers fill one channel. `preflight_check` runs alongside `install_claude_code`. A seam review of the whole diff follows its close.
 
 ## Goal
 Each driver installs the global instruction text and hooks where its harness looks, and names the workspace instruction file, which the core mounts read-only at the workspace root. Each run records which instruction files loaded. Preflight refuses a cell that a harness check rejects, or whose workspace file collides with an input.

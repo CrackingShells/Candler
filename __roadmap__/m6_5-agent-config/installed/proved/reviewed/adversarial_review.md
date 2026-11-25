@@ -1,7 +1,7 @@
 # Adversarial review
 
 **Goal**: A Sonnet reviewer, who did not build M6.5, reads the milestone's whole diff against the consumer interface, and the closing report says what holds and what does not. (P1)
-**Estimate**: Sonnet, $4, cap $8. At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
+**Estimate**: Sonnet, $4, cap $8. If the work outgrows the leaf or meets a question its brief does not answer, hand back with the question, the evidence and what is green. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:

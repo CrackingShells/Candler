@@ -1,7 +1,7 @@
 # E2E guard
 
 **Goal**: The real `candler run` on real Claude Code and real OpenCode, against the scripted fake model and then live on RiVault, shows from the stored trace the README's promise for instructions and hooks on both harnesses. (P0)
-**Estimate**: Sonnet, $11, cap $22 (the live run included). At the cap, stop, commit what is green, and list what is left in the leaf report. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
+**Estimate**: Sonnet, $11, cap $22 (the live run included). If the work outgrows the leaf or meets a question its brief does not answer, hand back with the question, the evidence and what is green. Builds use one slot of `/Users/hacker/Documents/tmp/m6_5-target/slot-1..3`, and the leaf removes it when it merges. The leaf deletes the containers it starts.
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:
