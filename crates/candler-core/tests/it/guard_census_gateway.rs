@@ -202,7 +202,8 @@ fn log_of_recorded_stream() -> String {
 /// `census.instructions`, the `Instructions from:` blocks of the system text of the first request
 /// that offered tools, which the core hands to the driver from the stored gateway stream.
 /// Oracle: the system text of a recorded `OpenCode` 2.2.7 request (`fixtures/gateway` of
-/// `candler-harness-opencode`), and the two paths written by hand.
+/// `candler-harness-opencode`), and the two paths written by hand: the user file absolute, the
+/// workspace file relative to the workspace, as `LoadedFile` documents.
 /// Bite: leave the gateway stream out of the streams the driver reads, or read the title request.
 #[test]
 fn census_gateway_run_records_the_instruction_files_of_the_first_request_with_tools() {
@@ -213,7 +214,7 @@ fn census_gateway_run_records_the_instruction_files_of_the_first_request_with_to
         ran.measured("census.instructions"),
         Some(json!([
             {"path": "/home/agent/.xdg/config/opencode/AGENTS.md", "scope": "user"},
-            {"path": "/work/AGENTS.md", "scope": "project"},
+            {"path": "AGENTS.md", "scope": "project"},
         ]))
     );
 }
