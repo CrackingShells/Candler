@@ -267,10 +267,10 @@ fn stream_with(result: Option<&str>) -> Vec<Vec<u8>> {
     lines
 }
 
-/// A result's exit as `expected.toml` writes it: session, call id, the name of the call, and the exit code when there is one.
-type ExitRow = (String, String, String, Option<i32>);
+/// A result's exit as a row states it: session, call id, the name of the call, and the exit code when there is one.
+type ExitRow<'a> = (&'a str, &'a str, &'a str, Option<i32>);
 
-fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow>> {
+fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow<'_>>> {
     let Some(rows) = stream.expected.get("exits") else {
         return Ok(Vec::new());
     };
@@ -282,9 +282,9 @@ fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow>> {
             .map(|code| -> Res<i32> { Ok(i32::try_from(code.as_integer().ok_or("code")?)?) })
             .transpose()?;
         out.push((
-            text(entry, "session")?.to_owned(),     // BORROW: owned copy
-            text(entry, "tool_use_id")?.to_owned(), // BORROW: owned copy
-            text(entry, "tool")?.to_owned(),        // BORROW: owned copy
+            text(entry, "session")?,
+            text(entry, "tool_use_id")?,
+            text(entry, "tool")?,
             code,
         ));
     }
@@ -292,8 +292,8 @@ fn expected_exits(stream: &Stream) -> Res<Vec<ExitRow>> {
 }
 
 /// Checks each row against the reader's result of that call in that session: the call has the name the row gives, and the result has the exit code the row gives, or none.
-fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
-    for (session, id, tool, want) in rows {
+fn check_exits(name: &str, output: &Output, rows: &[ExitRow<'_>]) -> Res<()> {
+    for &(session, id, tool, want) in rows {
         let held: Vec<&SessionEvent> = output
             .events
             .iter()
@@ -316,11 +316,11 @@ fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
                 }
             })
             .collect();
-        assert_eq!(
-            called,
-            [tool.as_str()],
-            "{name}: the call {id} in {session}"
-        );
+        if called != [tool] {
+            return Err(
+                format!("{name}: the call {id} in {session} is {called:?}, want {tool}").into(),
+            );
+        }
         let mut results = Vec::new();
         for record in &held {
             if let EventKind::ToolResult { exit, .. } = &record.event.kind {
@@ -331,22 +331,45 @@ fn check_exits(name: &str, output: &Output, rows: &[ExitRow]) -> Res<()> {
                 });
             }
         }
-        assert_eq!(
-            results,
-            [*want],
-            "{name}: exit of the result of {tool} call {id} in {session}"
-        );
+        if results != [want] {
+            return Err(format!(
+                "{name}: exit of the result of {tool} call {id} in {session} is {results:?}, want {want:?}"
+            )
+            .into());
+        }
     }
     Ok(())
 }
 
-/// Lines in which one call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`, so the result in each session gets the exit of its own call; and a `Bash` call whose result is not an error but reports `interrupted`.
+/// Checks that no result without a span carries an exit, and that the stream has one.
+fn check_spanless_results(name: &str, output: &Output) -> Res<()> {
+    let mut seen = 0_usize;
+    for record in &output.events {
+        if let (EventKind::ToolResult { exit, .. }, None) = (&record.event.kind, &record.event.span)
+        {
+            seen += 1;
+            if exit.is_some() {
+                return Err(format!("{name}: a result joined to no call has exit {exit:?}").into());
+            }
+        }
+    }
+    if seen == 0 {
+        return Err(format!("{name}: the stream has no result without a span").into());
+    }
+    Ok(())
+}
+
+/// Lines in which a call id names a `Read` in the root session and a `Bash` in the subagent session `S/A`, so the result in each session gets the exit of its own call: `X` answers the root result first, `Y` the child result first; a `Bash` call whose result is not an error but reports `interrupted`; and a result whose id is no span (it holds white space), which joins no call.
 fn exit_join_stream() -> Vec<Vec<u8>> {
-    let bash = r#"{"type":"tool_use","id":"X","name":"Bash","input":{"command":"true"}}"#;
-    let read = r#"{"type":"tool_use","id":"X","name":"Read","input":{}}"#;
+    let bash = |id: &str| {
+        format!(r#"{{"type":"tool_use","id":"{id}","name":"Bash","input":{{"command":"true"}}}}"#)
+    };
+    let read =
+        |id: &str| format!(r#"{{"type":"tool_use","id":"{id}","name":"Read","input":{{}}}}"#);
     let agent = r#"{"type":"tool_use","id":"A","name":"Agent","input":{}}"#;
-    let result =
-        |text: &str| format!(r#"{{"type":"tool_result","tool_use_id":"X","content":"{text}"}}"#);
+    let result = |id: &str, text: &str| {
+        format!(r#"{{"type":"tool_result","tool_use_id":"{id}","content":"{text}"}}"#)
+    };
     let line = |kind: &str, parent: &str, blocks: &[&str]| {
         format!(
             r#"{{"type":"{kind}","session_id":"S",{parent}"message":{{"role":"{kind}","content":[{}]}}}}"#,
@@ -355,19 +378,21 @@ fn exit_join_stream() -> Vec<Vec<u8>> {
         .into_bytes()
     };
     let cut = r#"{"type":"tool_use","id":"I","name":"Bash","input":{"command":"sleep 9"}}"#;
-    let cut_result = r#"{"type":"tool_result","tool_use_id":"I","content":"partial"}"#;
     let child = r#""parent_tool_use_id":"A","#;
     let mut lines = stream_with(None);
-    lines.push(line("assistant", "", &[agent, read]));
-    lines.push(line("assistant", child, &[bash]));
-    lines.push(line("user", "", &[&result("file text")]));
-    lines.push(line("user", child, &[&result("")]));
+    lines.push(line("assistant", "", &[agent, &read("X"), &read("Y")]));
+    lines.push(line("assistant", child, &[&bash("X"), &bash("Y")]));
+    lines.push(line("user", "", &[&result("X", "file text")]));
+    lines.push(line("user", child, &[&result("X", "")]));
+    lines.push(line("user", child, &[&result("Y", "")]));
+    lines.push(line("user", "", &[&result("Y", "file text")]));
     lines.push(line("assistant", "", &[cut]));
     lines.push(line(
         "user",
         r#""tool_use_result":{"interrupted":true},"#,
-        &[cut_result],
+        &[&result("I", "partial")],
     ));
+    lines.push(line("user", "", &[&result("no span", "")]));
     lines
 }
 
@@ -531,12 +556,15 @@ fn expected_facts() -> Res<()> {
         assert_eq!(got, want, "result line {result:?}");
     }
     let shared = run(&exit_join_stream(), false)?;
-    let rows: [ExitRow; 3] = [
-        ("S".to_owned(), "X".to_owned(), "Read".to_owned(), None), // BORROW: owned text
-        ("S/A".to_owned(), "X".to_owned(), "Bash".to_owned(), Some(0)), // BORROW: owned text
-        ("S".to_owned(), "I".to_owned(), "Bash".to_owned(), None), // BORROW: owned text
+    let rows: [ExitRow<'_>; 5] = [
+        ("S", "X", "Read", None),
+        ("S/A", "X", "Bash", Some(0)),
+        ("S", "Y", "Read", None),
+        ("S/A", "Y", "Bash", Some(0)),
+        ("S", "I", "Bash", None),
     ];
     check_exits("shared call id", &shared, &rows)?;
+    check_spanless_results("shared call id", &shared)?;
     Ok(())
 }
 
