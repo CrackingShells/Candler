@@ -18,6 +18,9 @@ Instruction files and hooks as per-arm experiment data (M6.5).
 ### Round 03
 - [03-findings_probe_harness_checks_v0.md](03-findings_probe_harness_checks_v0.md) — **latest**. The level-1 probe, measured in the real images: the check command for each harness, where Claude Code's global file loads, the order and place (system or first message) in which instructions and session-start hooks reach the model. Two points amend v2's proof wording.
 
+### Round 04
+- [04-observation_level1_out_of_scope_v0.md](04-observation_level1_out_of_scope_v0.md) — **latest**. Eight findings from level 1 that lie outside its leaves: the 4 MiB gateway log read, an unlocked image build, a commit that does not build alone, OpenCode's silence on unknown keys, `mcp.servers` names, a timing guard, an unused image, a child not identified for signalling.
+
 ## Status
 
 The plan is approved, and the roadmap [`__roadmap__/m6_5-agent-config/`](../../__roadmap__/m6_5-agent-config/README.md) has been authored. The plan and the roadmap were amended on 2026-11-25 for two instruction scopes (v1), then for a live, trace-read proof (v2). Level 1 is dispatched, and the probe is done.
