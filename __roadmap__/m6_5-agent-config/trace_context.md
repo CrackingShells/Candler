@@ -5,10 +5,10 @@
 **Pre-conditions**:
 - [ ] `[cmd]` `git -C <worktree> merge-base --is-ancestor feat/m6.5-agent-config HEAD` succeeds
 **Success Gates**:
-- ⬜ G12. In a run on Claude Code and in a run on OpenCode against the fake model, the session's first trace event is `context_start`, and its `system` equals the system text of the run's first request that offers tools, as the gateway logged it. On the base, there is no such event.
-- ⬜ A trace written before the change still reads, and the schema's version bump is minor.
-- ⬜ One reader of the gateway log serves both the census and `context_start`; no second reader exists. The trace contract page documents the event, and states the measured size of the gateway's log line on both harnesses.
-- ⬜ The guards run in a pass that lists them as passed, not skipped. `docker ps -a` shows none of their containers afterwards.
+- ✅ G12. In a run on Claude Code and in a run on OpenCode against the fake model, the session's first trace event is `context_start`, and its `system` equals the system text of the run's first request that offers tools, as the gateway logged it. On the base, there is no such event.
+- ✅ A trace written before the change still reads, and the schema's version bump is minor.
+- ✅ One reader of the gateway log serves both the census and `context_start`; no second reader exists. The trace contract page documents the event, and states the measured size of the gateway's log line on both harnesses.
+- ✅ The guards run in a pass that lists them as passed, not skipped. `docker ps -a` shows none of their containers afterwards.
 **References**: [Architecture report, v2](../../__reports__/agent_config/02-architecture_agent_config_v2.md) — §Live trace proof, invariant 8 and §Execution model; `crates/candler-schemas/src/trace.rs` (`KnownKind`); `crates/candler-core/src/isolation/gateway.rs` and its njs script; `crates/candler-core/tests/it/guard_census_gateway.rs` (the census reader of the gateway log)
 
 ## Step 1: Record the first request and emit the event

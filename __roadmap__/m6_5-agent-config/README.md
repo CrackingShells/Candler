@@ -23,7 +23,7 @@ graph TD
     probe_harness_checks[Probe harness checks]:::done
     declaration[Declaration]:::inprogress
     installed[Installed]:::planned
-    trace_context[trace_context]:::inprogress
+    trace_context[trace_context]:::done
     classDef done       fill:#166534,color:#bbf7d0
     classDef inprogress fill:#854d0e,color:#fef08a
     classDef planned    fill:#374151,color:#e5e7eb
@@ -37,7 +37,7 @@ graph TD
 | `probe_harness_checks.md` | 📄 Leaf Task | ✅ Done |
 | `declaration.md` | 📄 Leaf Task | 🔄 In Progress |
 | `installed/` | 📁 Directory | ⬜ Planned |
-| `trace_context.md` | 📄 Leaf Task | 🔄 In Progress |
+| `trace_context.md` | 📄 Leaf Task | ✅ Done |
 
 ## Amendment Log
 | ID | Date | Source | Nodes Added | Rationale |
