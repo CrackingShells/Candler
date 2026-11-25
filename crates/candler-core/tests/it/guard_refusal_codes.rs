@@ -618,6 +618,8 @@ fn wrapped_cases() -> Vec<Wrapped> {
     use candler_core::isolation::gateway::{GatewayError, NotReadyCause, SecretError};
     use candler_core::jobs::dir::JobError;
     use candler_core::jobs::lost::RecoverError;
+    use candler_core::jobs::orchestrate::config::ConfigCheckError;
+    use candler_core::jobs::orchestrate::servers::ServerCheckError;
     use candler_core::jobs::orchestrate::session::OrchestrateError;
     use candler_core::jobs::slots::SlotError;
     use candler_core::resolve::preflight::ResolveError;
@@ -1018,6 +1020,26 @@ fn wrapped_cases() -> Vec<Wrapped> {
             "Plan",
             Box::new(OrchestrateError::Plan(PlanError::Cell { source: git() })),
             "manifest.git_commit_invalid",
+        ),
+        case(
+            "ConfigCheckError",
+            "Driver",
+            Box::new(ConfigCheckError::Driver(DriverError::HarnessRejectedInput {
+                path: "/fixed/hooks".to_owned(),
+                installed: "the files `a`".to_owned(),
+                at: "the workspace".to_owned(),
+                harness: "claude-code".to_owned(),
+                output: "bad".to_owned(),
+            })),
+            "experiment.harness_rejected_input",
+        ),
+        case(
+            "ConfigCheckError",
+            "Check",
+            Box::new(ConfigCheckError::Check(ServerCheckError::ServerCheck {
+                detail: "no container".to_owned(),
+            })),
+            "jobs.server_check_failed",
         ),
         // The import's.
         case(

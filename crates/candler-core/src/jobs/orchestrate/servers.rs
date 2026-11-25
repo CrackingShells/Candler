@@ -7,6 +7,7 @@ use std::fs;
 use std::path::Path;
 use std::time::Duration;
 
+use candler_harness::driver::Plan;
 use candler_harness::mcp::servers;
 use candler_harness::spec::{Cell, CommandSpec};
 use candler_schemas::primitives::RunKey;
@@ -14,9 +15,10 @@ use candler_schemas::servers::McpServer;
 
 use super::session::image_of;
 use crate::isolation::container::agent_home;
-use crate::isolation::{Isolation, StartProbe};
+use crate::isolation::model::ContainerPlan;
+use crate::isolation::{Isolation, IsolationError, StartProbe};
 use crate::runner::Runtime;
-use crate::runner::exec::{compose_container, stage_cell};
+use crate::runner::exec::{ExecError, compose_container, stage_cell};
 use crate::runner::plan::RunPlan;
 
 /// How long a server's start command is given before it must still be running.
@@ -111,21 +113,33 @@ pub async fn check_servers(rt: &Runtime, plans: &[RunPlan]) -> Result<(), Server
     verdict
 }
 
-/// Starts each server of one group in the container of `plan`'s cell, over a scratch workspace
-/// under `root`.
-async fn probe_group(
+/// Stages what a run of `plan`'s cell starts with under `root`, a scratch workspace and home, and
+/// composes the container such a run gets: the driver's plan for the cell and the container over
+/// it, with the cell's inputs and the plan's read-only workspace files mounted.
+///
+/// # Errors
+/// [`ExecError`] when the cell is unknown, a directory cannot be made, the driver refuses the cell
+/// or a file cannot be written or mounted.
+pub(super) async fn stage_container(
     rt: &Runtime,
     isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
     plan: &RunPlan,
-    stdio: &[(String, McpServer)],
     root: &Path,
-) -> Result<(), ServerCheckError> {
-    let cell = rt.cells.get(&plan.cell).ok_or_else(|| failed(&"no cell"))?;
+) -> Result<(Plan, ContainerPlan), ExecError> {
+    let cell = rt
+        .cells
+        .get(&plan.cell)
+        .ok_or_else(|| IsolationError::Plan {
+            detail: String::from("the job holds no record of the cell"),
+        })?;
     let comparable = plan.stored.as_ref().unwrap_or(&cell.comparable);
     let workspace = root.join("workspace");
-    fs::create_dir_all(&workspace).map_err(|e| failed(&e))?;
     let home = agent_home(root);
-    fs::create_dir_all(&home).map_err(|e| failed(&e))?;
+    for dir in [&workspace, &home] {
+        fs::create_dir_all(dir).map_err(|error| IsolationError::Plan {
+            detail: format!("cannot make a scratch directory: {error}"),
+        })?;
+    }
     let view = Cell::new(comparable.values());
     let (staged, _written) = stage_cell(
         rt,
@@ -136,9 +150,22 @@ async fn probe_group(
         &home,
         &root.join("scratch"),
     )
-    .await
-    .map_err(|e| failed(&e))?;
-    let mut container = compose_container(rt, isolation, &view, &workspace, &home, &cell.inputs)
+    .await?;
+    let container = compose_container(rt, isolation, &view, &workspace, &home, &cell.inputs)?;
+    Ok((staged, container))
+}
+
+/// Starts each server of one group in the container of `plan`'s cell, over a scratch workspace
+/// under `root`.
+async fn probe_group(
+    rt: &Runtime,
+    isolation: &dyn Isolation, // TRAIT_OBJECT: the runtime's isolation, or a fake in tests
+    plan: &RunPlan,
+    stdio: &[(String, McpServer)],
+    root: &Path,
+) -> Result<(), ServerCheckError> {
+    let (staged, mut container) = stage_container(rt, isolation, plan, root)
+        .await
         .map_err(|e| failed(&e))?;
     // Standard input stays open, as a server's own would while the agent runs.
     container.interactive = true;

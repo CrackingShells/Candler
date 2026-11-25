@@ -467,7 +467,8 @@ impl JobView for FakeJobView {
 }
 
 /// An [`Isolation`] that answers a start probe from a script and passes everything else to the
-/// isolation it wraps. It records each probed command and each run request.
+/// isolation it wraps. It records each probed command, each command run for its output, and each
+/// run request with the mounts of its container.
 pub struct ProbingIsolation {
     // TRAIT_OBJECT: the wrapped isolation is the job's own, or a fake
     inner: Arc<dyn super::Isolation>,
@@ -476,6 +477,9 @@ pub struct ProbingIsolation {
     runs: Mutex<usize>,
     eof_exits: Mutex<BTreeMap<String, String>>,
     needs: Mutex<BTreeSet<String>>,
+    prints: Mutex<BTreeMap<String, String>>,
+    executed: Mutex<Vec<(Vec<String>, Vec<super::container::mounts::MountSpec>)>>,
+    run_mounts: Mutex<Vec<Vec<super::container::mounts::MountSpec>>>,
 }
 
 impl ProbingIsolation {
@@ -490,7 +494,29 @@ impl ProbingIsolation {
             runs: Mutex::new(0),
             eof_exits: Mutex::new(BTreeMap::new()),
             needs: Mutex::new(BTreeSet::new()),
+            prints: Mutex::new(BTreeMap::new()),
+            executed: Mutex::new(Vec::new()),
+            run_mounts: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Makes a command run for its output whose program is `program` print `output`; one no
+    /// answer names prints nothing.
+    pub fn print(&self, program: &str, output: &str) {
+        held(&self.prints).insert(program.to_owned(), output.to_owned()); // BORROW: the script owns its words
+    }
+
+    /// The commands run for their output so far, as their words, each with the mounts of the
+    /// container it ran in.
+    #[must_use]
+    pub fn executed(&self) -> Vec<(Vec<String>, Vec<super::container::mounts::MountSpec>)> {
+        held(&self.executed).clone() // BORROW: the caller reads its own copy
+    }
+
+    /// The mounts of the container of each run request, in order.
+    #[must_use]
+    pub fn run_mounts(&self) -> Vec<Vec<super::container::mounts::MountSpec>> {
+        held(&self.run_mounts).clone() // BORROW: the caller reads its own copy
     }
 
     /// Answers a probe whose command starts with the program `program` with `answer`.
@@ -541,7 +567,22 @@ impl super::Isolation for ProbingIsolation {
         outputs: super::RunOutputs,
     ) -> BoxFuture<'a, Result<super::IsolatedRequest, super::IsolationError>> {
         *held(&self.runs) += 1;
+        held(&self.run_mounts).push(plan.mounts.clone()); // BORROW: the log owns the mounts
         self.inner.run_request(plan, command, marker, key, outputs)
+    }
+
+    fn collect_exec<'a>(
+        &'a self,
+        plan: &'a super::model::ContainerPlan,
+        command: &'a candler_harness::spec::CommandSpec,
+    ) -> BoxFuture<'a, Result<Vec<u8>, super::IsolationError>> {
+        held(&self.executed).push((command.argv().to_vec(), plan.mounts.clone())); // BORROW: the log owns the words and the mounts
+        let printed = command
+            .argv()
+            .first()
+            .and_then(|program| held(&self.prints).get(program).cloned()) // BORROW: the caller owns the output
+            .unwrap_or_default();
+        Box::pin(async move { Ok(printed.into_bytes()) })
     }
 
     fn collect_and_destroy<'a>(

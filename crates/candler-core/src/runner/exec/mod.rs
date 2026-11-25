@@ -898,7 +898,11 @@ async fn drive(
         events,
         totals,
     )));
-    measured.extend(provenance_values(&rt.eval_infra, &cell.packages));
+    measured.extend(provenance_values(
+        &rt.eval_infra,
+        &cell.packages,
+        cell.config_clean,
+    ));
     if let Some(outcome) = &session_outcome {
         let own_end = end.invalid.is_none();
         measured.extend(session_values(&outcome.measures(

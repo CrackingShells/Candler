@@ -15,6 +15,7 @@ use std::error::Error;
 
 use crate::jobs::dir::JobError;
 use crate::jobs::lost::RecoverError;
+use crate::jobs::orchestrate::config::ConfigCheckError;
 use crate::jobs::orchestrate::servers::ServerCheckError;
 use crate::jobs::orchestrate::session::OrchestrateError;
 use crate::jobs::runtime::RuntimeError;
@@ -51,6 +52,14 @@ fn orchestrate_error_path(error: &OrchestrateError) -> Option<String> {
         | OrchestrateError::Docker { .. }
         | OrchestrateError::Controls { .. }
         | OrchestrateError::Job { .. } => None,
+    }
+}
+
+/// The pointer of the place in a document where a [`ConfigCheckError`] sits, if it names one.
+fn config_check_error_path(error: &ConfigCheckError) -> Option<String> {
+    match error {
+        ConfigCheckError::Driver(inner) => Refusal::path(inner),
+        ConfigCheckError::Check(inner) => Refusal::path(inner),
     }
 }
 
@@ -362,10 +371,16 @@ refusal_table! {
     ),
 }
 
+wrapper_table! {
+    ConfigCheckError, path = config_check_error_path;
+    Driver (inner) => delegate(inner, Side::Experiment),
+    Check (inner) => delegate(inner, Side::Environment),
+}
+
 /// The rows of every coded error of this module, in the order of the types.
 #[must_use]
 pub(crate) fn catalog() -> Vec<CatalogRow> {
-    let tables: [&'static [CatalogRow]; 7] = [
+    let tables: [&'static [CatalogRow]; 8] = [
         <JobError as Catalogued>::rows(),
         <RecoverError as Catalogued>::rows(),
         <OrchestrateError as Catalogued>::rows(),
@@ -373,6 +388,7 @@ pub(crate) fn catalog() -> Vec<CatalogRow> {
         <SlotError as Catalogued>::rows(),
         <JobViewError as Catalogued>::rows(),
         <ServerCheckError as Catalogued>::rows(),
+        <ConfigCheckError as Catalogued>::rows(),
     ];
     tables
         .iter()
@@ -393,6 +409,14 @@ fn recover_answer(error: &RecoverError) -> &dyn Refusal {
         RecoverError::Unavailable { .. }
         | RecoverError::Reap { .. }
         | RecoverError::Store { .. } => error,
+    }
+}
+
+/// The refusal that answers for a [`ConfigCheckError`]: the error it wraps.
+fn config_answer(error: &ConfigCheckError) -> &dyn Refusal {
+    match error {
+        ConfigCheckError::Driver(inner) => crate::refusal::through(inner, error),
+        ConfigCheckError::Check(inner) => crate::refusal::through(inner, error),
     }
 }
 
@@ -429,4 +453,5 @@ pub(crate) fn coded<'e>(error: &'e (dyn Error + 'static)) -> Option<&'e dyn Refu
         .or_else(|| error.downcast_ref::<SlotError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<JobViewError>().map(as_refusal))
         .or_else(|| error.downcast_ref::<ServerCheckError>().map(as_refusal))
+        .or_else(|| error.downcast_ref::<ConfigCheckError>().map(config_answer))
 }
