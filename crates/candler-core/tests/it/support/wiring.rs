@@ -195,8 +195,8 @@ impl HarnessDriver for WiringDriver {
         self.0.state_paths()
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        self.0.census_stream()
+    fn census_from_gateway(&self) -> bool {
+        self.0.census_from_gateway()
     }
 
     fn stop(&self) -> StopSpec {

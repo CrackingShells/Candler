@@ -12,7 +12,7 @@ use candler_harness::reader::TraceReader;
 use candler_harness::skills::SkillTree;
 use candler_harness::spec::{
     Action, AgentSetting, Answer, BaseImage, Cell, CheckVerdict, CollectSpec, CommandSpec,
-    DriverFact, GATEWAY_STREAM, GatewayEnv, HarnessId, OPENCODE, Observed, Prepared, ProcessExit,
+    DriverFact, GatewayEnv, HarnessId, OPENCODE, Observed, Prepared, ProcessExit,
     StateKind, StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::name;
@@ -270,8 +270,8 @@ impl HarnessDriver for OpenCodeDriver {
         Some(Box::new(OpenCodeLiveReader::new())) // TRAIT_OBJECT: the core selects readers at runtime
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        GATEWAY_STREAM.parse().ok()
+    fn census_from_gateway(&self) -> bool {
+        true
     }
 
     fn offline_reader(

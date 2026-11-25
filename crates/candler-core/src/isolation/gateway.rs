@@ -10,7 +10,9 @@
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use candler_harness::spec::{CensusSource, InitReport};
+use candler_harness::spec::{
+    CensusSource, GatewayRecord, InitReport, StartContext, gateway_records,
+};
 use candler_schemas::container::{ContainerLabels, ContainerRecord, ContainerRole};
 use candler_schemas::primitives::{ContainerId, Digest, JobId, Marker, RunKey};
 use candler_schemas::process::ExitStatus;
@@ -1220,14 +1222,6 @@ fn signals_of(log: &str, run: &RunKey, tag: &str) -> Vec<GatewaySignal> {
     signals
 }
 
-/// The members of a context line: the system text and the first message of a request.
-#[derive(serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ContextBody {
-    system: String,
-    first_message: String,
-}
-
 /// What the sidecar's log says of the run `run` under its tag `tag`: one JSON line for each census
 /// line and each context line of the gateway whose `run=` and `tag=` fields equal these.
 ///
@@ -1276,7 +1270,7 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
                 .map(|tools| serde_json::json!({"seq": seq, "tools": tools}))
         } else {
             rest.strip_prefix("body=")
-                .and_then(|text| serde_json::from_str::<ContextBody>(text).ok())
+                .and_then(|text| serde_json::from_str::<StartContext>(text).ok())
                 .map(|body| {
                     serde_json::json!({
                         "seq": seq,
@@ -1297,28 +1291,20 @@ pub fn census_of(log: &str, run: &RunKey, tag: &str) -> Vec<u8> {
 /// requests carried tools has none.
 #[must_use]
 pub fn census_context(stream: &[u8]) -> Option<(u64, EventKind)> {
-    #[derive(serde::Deserialize)]
-    struct Record {
-        seq: u64,
-        context: ContextBody,
-    }
-    stream
-        .split(|byte| *byte == b'\n')
-        .enumerate()
-        .filter_map(|(frame, line)| {
-            serde_json::from_slice::<Record>(line)
-                .ok()
-                .map(|record| (frame, record))
+    let (frame, _, context) = gateway_records(stream)
+        .filter_map(|(frame, record)| {
+            let GatewayRecord::Context { seq, context } = record else {
+                return None;
+            };
+            Some((frame, seq, context))
         })
-        .min_by_key(|(_, record)| record.seq)
-        .and_then(|(frame, record)| {
-            u64::try_from(frame).ok().map(|frame| {
-                (
-                    frame,
-                    EventKind::context_start(record.context.system, record.context.first_message),
-                )
-            })
-        })
+        .min_by_key(|(_, seq, _)| *seq)?;
+    u64::try_from(frame).ok().map(|frame| {
+        (
+            frame,
+            EventKind::context_start(context.system, context.first_message),
+        )
+    })
 }
 
 /// The tool inventory of a census stream: the names of the first request, by sequence number,
@@ -1326,17 +1312,16 @@ pub fn census_context(stream: &[u8]) -> Option<(u64, EventKind)> {
 /// of whose requests carry tools has no inventory, never an empty one.
 #[must_use]
 pub fn census_init(stream: &[u8]) -> Option<InitReport> {
-    #[derive(serde::Deserialize)]
-    struct Request {
-        seq: u64,
-        tools: Vec<String>,
-    }
-    let first = stream
-        .split(|byte| *byte == b'\n')
-        .filter_map(|line| serde_json::from_slice::<Request>(line).ok())
-        .filter(|request| !request.tools.is_empty())
-        .min_by_key(|request| request.seq)?;
-    InitReport::new(serde_json::json!(first.tools), CensusSource::Gateway).ok()
+    let (_, tools) = gateway_records(stream)
+        .filter_map(|(_, record)| {
+            let GatewayRecord::Tools { seq, tools } = record else {
+                return None;
+            };
+            Some((seq, tools))
+        })
+        .filter(|(_, tools)| !tools.is_empty())
+        .min_by_key(|(seq, _)| *seq)?;
+    InitReport::new(serde_json::json!(tools), CensusSource::Gateway).ok()
 }
 
 /// 128 random bits as hex, from the operating system.

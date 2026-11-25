@@ -751,7 +751,7 @@ async fn drive(
         };
         match stored {
             Some((name, bytes, file)) => {
-                if rt.driver.census_stream().is_some() {
+                if rt.driver.census_from_gateway() {
                     gateway_init = census_init(&bytes);
                 }
                 context =

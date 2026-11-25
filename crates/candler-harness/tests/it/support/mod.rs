@@ -15,9 +15,9 @@ use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::{FrameIn, ReaderError, TraceReader};
 use candler_harness::spec::{
     Action, AgentSetting, Answer, Cell, CensusSource, CollectSpec, CommandSpec, Confidence,
-    DriverFact, FormatVersion, Framing, GatewayEnv, HarnessId, HttpMethod, InitReport, Observed,
-    ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind, StatePath, StopSignal,
-    StopSpec, Workspace,
+    DriverFact, FormatVersion, Framing, GATEWAY_STREAM, GatewayEnv, HarnessId, HttpMethod,
+    InitReport, Observed, ObservedEnd, Prepared, PreparedFile, ProcessEnd, ProcessExit, StateKind,
+    StatePath, StopSignal, StopSpec, Workspace,
 };
 use candler_schemas::primitives::{FieldPath, Name, NameVersion, Timestamp};
 use candler_schemas::raw::{RawFrame, RawRef, StreamName};
@@ -949,8 +949,8 @@ impl HarnessDriver for OpenShapedDriver {
         ]
     }
 
-    fn census_stream(&self) -> Option<StreamName> {
-        "model_requests".parse().ok()
+    fn census_from_gateway(&self) -> bool {
+        true
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
@@ -1015,7 +1015,7 @@ impl HarnessDriver for OpenShapedDriver {
     ) -> Option<Box<dyn TraceReader>> {
         // BORROW: explicit .as_str() instead of Deref coercion
         match stream.as_str() {
-            "model_requests" => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
+            GATEWAY_STREAM => Some(Box::new(CensusReader { tools: None })), // TRAIT_OBJECT: the trait returns readers as objects
             "export" => Some(Box::new(ExportReader { session: None })), // TRAIT_OBJECT: the trait returns readers as objects
             _ => self.0.offline_reader(stream, servers),
         }

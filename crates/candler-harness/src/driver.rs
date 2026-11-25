@@ -234,13 +234,12 @@ pub trait HarnessDriver: Send + Sync {
         Vec::new()
     }
 
-    /// [`crate::spec::GATEWAY_STREAM`] when the harness has no init event, or `None` when the
-    /// census comes from the live reader's init report. The core reads the tool
-    /// names the gateway saw in the model requests and reports them as the inventory, labelled
-    /// [`crate::spec::CensusSource::Gateway`]; a run none of whose requests carry tools leaves it
-    /// unrecorded, never an empty set.
-    fn census_stream(&self) -> Option<StreamName> {
-        None
+    /// Whether the census is the tool names the gateway saw in the model requests (the harness
+    /// has no init event), reported as the inventory and labelled
+    /// [`crate::spec::CensusSource::Gateway`], or comes from the live reader's init report. A run
+    /// none of whose requests carry tools leaves the census unrecorded, never an empty set.
+    fn census_from_gateway(&self) -> bool {
+        false
     }
 
     /// The instruction files the harness loaded, as `stream` shows them: `bytes` is that
