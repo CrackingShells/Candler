@@ -19,6 +19,7 @@ use candler_core::jobs::model::{JobOutcome, JobSpec};
 use candler_core::jobs::orchestrate::session::JobHost;
 use candler_harness::driver::{DriverError, HarnessDriver, Plan};
 use candler_harness::reader::TraceReader;
+use candler_harness::spec::StateKind;
 use candler_harness::spec::{
     AgentSetting, Answer, Cell, CheckVerdict, CollectSpec, CommandSpec, DriverFact, EnvEntry,
     EnvValue, HarnessId, Observed, Prepared, PreparedFile, ProcessExit, StatePath, StopSpec,
@@ -35,6 +36,9 @@ use support::run_plan::Facts;
 /// The text of the workspace file the stand-in harness lists.
 const WORKSPACE_TEXT: &str = "be brief";
 
+/// The variable the stand-in's state path and its check both set.
+const STATE_VARIABLE: &str = "XDG_DATA_HOME";
+
 /// The program of the stand-in harness's check.
 const CHECK: &str = "harness-check";
 
@@ -47,6 +51,8 @@ struct Checking {
     vary: Vary,
     /// Whether the run collects every file of the workspace as an output.
     collect_all: bool,
+    /// Whether a state variable of the run is one the check's own environment sets.
+    shared_state: bool,
     /// How many times the harness was asked to plan a cell.
     planned: Arc<AtomicUsize>,
 }
@@ -73,6 +79,7 @@ impl Checking {
             check,
             vary: Vary::Nothing,
             collect_all: false,
+            shared_state: false,
             planned: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -95,6 +102,12 @@ impl HarnessDriver for Checking {
                     }
                 })
                 .unwrap_or_default();
+            if self.shared_state {
+                builder = builder.env(EnvEntry::literal(
+                    STATE_VARIABLE.to_owned(),
+                    "/tmp/candler-config-check".to_owned(),
+                ));
+            }
             if self.vary == Vary::CommandEnv {
                 builder = builder.env(EnvEntry::literal("CHECK_MODEL".to_owned(), model.clone()));
             }
@@ -161,7 +174,15 @@ impl HarnessDriver for Checking {
     }
 
     fn state_paths(&self) -> Vec<StatePath> {
-        self.inner.state_paths()
+        let mut paths = self.inner.state_paths();
+        if self.shared_state {
+            paths.push(StatePath::new(
+                STATE_VARIABLE.to_owned(),
+                StateKind::Dir,
+                ".local/share".parse::<RelPath>().expect("a path"),
+            ));
+        }
+        paths
     }
 
     fn plan(&self, cell: &Cell<'_>, workspace: &Workspace<'_>) -> Result<Plan, DriverError> {
@@ -532,5 +553,27 @@ fn workspace_file_is_mounted_read_only_and_is_no_output() {
     assert_ne!(
         manifest["integrity"]["reason"], "input_leak",
         "the file is no input leak: {manifest}"
+    );
+}
+
+/// Guards: a variable the check's command sets wins over the container's own: a state variable of
+/// the run with the same name is left out of the check container's environment, which the
+/// isolation would otherwise refuse as a name set twice, and the job is not refused.
+/// Oracle: the variable name `XDG_DATA_HOME` and its values written by hand; the environment the
+/// isolation double recorded for the check container.
+/// Bite: leave the run's variable in the check container, which then holds the name twice or the
+/// run's value.
+#[test]
+fn the_checks_own_variable_wins_over_the_runs() {
+    let mut driver = Checking::new(true);
+    driver.shared_state = true;
+    let ran = run(job(&["m1"]), driver, "ok");
+    assert_eq!(ran.outcome.runs.len(), 1, "the run starts");
+    let probing = ran.host.probing();
+    let held = probing.executed_env();
+    let env = held.first().expect("the check ran");
+    assert!(
+        env.iter().all(|(name, _)| name != STATE_VARIABLE),
+        "the check container keeps the run's variable: {env:?}"
     );
 }

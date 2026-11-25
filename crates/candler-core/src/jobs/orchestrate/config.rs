@@ -263,13 +263,21 @@ async fn grouped<'a>(
             continue;
         }
         let root = scratch.join(seen.len().to_string()); // BORROW: .to_string() gives owned text
-        let (staged, container) = stage_container(rt, isolation, plan, &root, false)
+        let (staged, mut container) = stage_container(rt, isolation, plan, &root, false)
             .await
             .map_err(|e| failed(&e))?;
         let Some(command) = rt.driver.config_check(&staged) else {
             let _ = fs::remove_dir_all(&root); // EXPLICIT: a cell with no check keeps nothing of its staging
             continue;
         };
+        // The check's own variables win over the container's, as the isolation refuses a name
+        // set twice: a state variable of the run, which the check places elsewhere, gives way.
+        container.env.retain(|(name, _)| {
+            !command
+                .env_overlay()
+                .iter()
+                .any(|entry| entry.name == *name)
+        });
         let key = group_key(rt, plan, &staged, &container, &command)?;
         match groups.entry(key) {
             Entry::Occupied(mut held) => {

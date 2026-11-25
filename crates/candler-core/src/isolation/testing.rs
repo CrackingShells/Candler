@@ -487,6 +487,7 @@ pub struct ProbingIsolation {
     needs: Mutex<BTreeSet<String>>,
     prints: Mutex<BTreeMap<String, super::docker::ExecOutput>>,
     executed: Mutex<Vec<(Vec<String>, Vec<super::container::mounts::MountSpec>)>>,
+    executed_env: Mutex<Vec<Vec<(String, String)>>>,
     run_mounts: Mutex<Vec<Vec<super::container::mounts::MountSpec>>>,
 }
 
@@ -504,6 +505,7 @@ impl ProbingIsolation {
             needs: Mutex::new(BTreeSet::new()),
             prints: Mutex::new(BTreeMap::new()),
             executed: Mutex::new(Vec::new()),
+            executed_env: Mutex::new(Vec::new()),
             run_mounts: Mutex::new(Vec::new()),
         }
     }
@@ -520,6 +522,12 @@ impl ProbingIsolation {
     /// Makes a command run for its output whose program is `program` end as `output` says.
     pub fn ran(&self, program: &str, output: super::docker::ExecOutput) {
         held(&self.prints).insert(program.to_owned(), output); // BORROW: the script owns its words
+    }
+
+    /// The environment of the container of each command run for its output so far.
+    #[must_use]
+    pub fn executed_env(&self) -> Vec<Vec<(String, String)>> {
+        held(&self.executed_env).clone() // BORROW: the caller owns the copy
     }
 
     /// The commands run for their output so far, as their words, each with the mounts of the
@@ -593,6 +601,7 @@ impl super::Isolation for ProbingIsolation {
         command: &'a candler_harness::spec::CommandSpec,
     ) -> BoxFuture<'a, Result<super::docker::ExecOutput, super::IsolationError>> {
         held(&self.executed).push((command.argv().to_vec(), plan.mounts.clone())); // BORROW: the log owns the words and the mounts
+        held(&self.executed_env).push(plan.env.clone()); // BORROW: the log owns the environment
         let printed = command
             .argv()
             .first()
