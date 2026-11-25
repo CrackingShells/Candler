@@ -32,7 +32,8 @@ The bytes of those files are the store's, written by the import, so the generato
 a store folder given with `--store` (the hash of a file is the only thing it takes from there) and
 records each hash in its row. Without `--store` it reuses the hashes its rows already record, so
 `--check` needs no store; the Rust guard compares each recorded hash with the hash of the file the
-store holds before it compares digests.
+store holds before it compares digests. The recorded hashes are those of the bytes a reader
+writes, so the `[[served]]` rows are regenerated with `--store` whenever a reader's output changes.
 """
 
 import argparse
